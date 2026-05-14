@@ -25,6 +25,30 @@ cd zxgk-daily-query
 
 ---
 
+## ⚠️ OCR 模型部署警示（Agent 强制执行）
+
+首次使用本技能时，Agent **必须**在运行 `bash setup.sh` 之前，向用户展示以下信息并等待用户明确回复「同意」：
+
+**硬件要求：**
+- 内存 ≥ 4GB RAM（PaddleOCR 模型运行时 ~1.5GB + Chromium ~500MB）
+- 磁盘 ≥ 3GB 可用空间（模型首次下载约 1.5GB）
+- CPU 推理，无需 GPU
+
+**将安装的内容：**
+- PaddlePaddle + PaddleOCR（PP-OCRv4 英文/数字模型）
+- pip 依赖约 300MB，模型首次启动自动下载约 1.5GB
+
+**替代方案（如不同意）：**
+- 跳过安装，用户自行部署 captcha-solver（Docker / 裸机 venv），只需兼容 localhost:8001 的 `/health` + `/solve` 接口
+- 或使用其他 OCR 方案（如云端 API），替换 `captcha_server` 配置指向自定义服务
+
+Agent 必须向用户提问确认，示例：
+> 「是否同意在本地安装 PaddleOCR 模型（约 1.5GB）？回复「同意」继续安装，或选择跳过自行部署 OCR 服务。」
+
+**用户回复「同意」后方可执行 `bash setup.sh`。回复其他内容则跳过 OCR 安装，引导用户自行部署。**
+
+---
+
 ## 首次使用（一次性）
 
 ```bash
