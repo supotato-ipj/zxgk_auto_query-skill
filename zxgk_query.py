@@ -943,6 +943,10 @@ class ScreenshotBackfiller:
                     ):
                         logger.info("  ✅ 上传成功")
                         success += 1
+                        try:
+                            os.remove(str(png_path))
+                        except OSError:
+                            pass
                     else:
                         logger.warning("  ❌ 写入失败")
                         fail += 1

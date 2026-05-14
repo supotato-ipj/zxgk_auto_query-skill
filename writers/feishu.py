@@ -463,6 +463,10 @@ def upload_screenshots_for_records(records, screenshots_dir, subsite):
                               {CASE_FIELD_SCREENSHOT: [{"file_token": file_token}]}):
             print(f"    ✅ {case_record_id}")
             success += 1
+            try:
+                os.remove(ss_path)
+            except OSError:
+                pass
         else:
             print(f"    ❌ 更新记录失败 (record_id={case_record_id})")
             fail += 1
