@@ -3,20 +3,18 @@
 ## 启动服务
 
 ```bash
-cd /home/supotato/.openclaw/workspace-main/projects/captcha-solver
+cd captcha-solver
 
-# 激活虚拟环境
+# Docker（推荐）
+docker compose up -d
+
+# 或裸机
 source venv/bin/activate
-
-# 设置代理（模型首次下载需要，已下载后可省略）
-export ALL_PROXY="socks5://127.0.0.1:1080"
-
-# 跳过模型源连通性检查（必设）
-export PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
-
-# 启动（默认端口 8000）
+pip install -r requirements.txt
 PORT=8000 python main.py
 ```
+
+> 首次启动会自动下载 PaddleOCR 模型（~1.5GB），请耐心等待。
 
 ## 服务端点
 
