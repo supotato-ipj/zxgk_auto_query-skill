@@ -38,8 +38,12 @@ cd zxgk-daily-query
 - PaddlePaddle + PaddleOCR（PP-OCRv4 英文/数字模型）
 - pip 依赖约 300MB，模型首次启动自动下载约 1.5GB
 
+**端口说明：**
+- 默认端口 `8001`，可在 `config/zxgk.yaml` 的 `captcha_server` 修改（如 `http://localhost:9001`）
+- 若端口被占用，cron 脚本会自动检测并提示，不会静默失败
+
 **替代方案（如不同意）：**
-- 跳过安装，用户自行部署 captcha-solver（Docker / 裸机 venv），只需兼容 localhost:8001 的 `/health` + `/solve` 接口
+- 跳过安装，用户自行部署 captcha-solver（Docker / 裸机 venv），只需兼容 `/health` + `/solve` 接口
 - 或使用其他 OCR 方案（如云端 API），替换 `captcha_server` 配置指向自定义服务
 
 Agent 必须向用户提问确认，示例：

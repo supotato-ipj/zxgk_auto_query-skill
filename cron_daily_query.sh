@@ -46,6 +46,16 @@ echo "[0] captcha-solver ..."
 CAPTCHA_DIR="$WORKSPACE/captcha-solver"
 
 if ! curl -s http://localhost:8001/health > /dev/null 2>&1; then
+    # 检测端口 8001 是否被非 captcha 进程占用
+    PORT_PID=$(ss -tlnp 2>/dev/null | awk '/:8001 /{print $NF}' | grep -oP 'pid=\K[0-9]+' || true)
+    if [ -n "$PORT_PID" ]; then
+        PORT_PROC=$(ps -p "$PORT_PID" -o comm= 2>/dev/null || echo "unknown")
+        echo "❌ 端口 8001 已被占用（PID=$PORT_PID, 进程=$PORT_PROC），且不是 captcha-solver"
+        echo "   修改 config/zxgk.yaml 的 captcha_server 为可用端口后重试"
+        echo "   或手动终止占用进程: kill $PORT_PID"
+        exit 3
+    fi
+
     echo "  captcha-solver 未运行，启动中 ..."
 
     # 优先 Docker，fallback 到裸机 venv
