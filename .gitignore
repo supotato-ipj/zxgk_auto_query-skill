@@ -1,0 +1,36 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 私人配置（含真实公司名/飞书表ID）
+config/zxgk.yaml
+config/companies.txt
+
+# 存档文档（含私人数据，仅 architecture.md 例外）
+docs/
+!docs/architecture.md
+output/
+data/
+archive/
+reference/
+diagnose_results.json
+*.log
+
+# 含私人数据（caseNo/record_id）
+backfill_4_records.py
+INCIDENTS.md
+
+# 编辑器/Agent
+.claude/
+.cursor/
+.vscode/
+.idea/
+
+# env
+.env
+
+# OS
+.DS_Store
+Thumbs.db

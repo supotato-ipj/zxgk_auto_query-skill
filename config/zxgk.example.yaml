@@ -1,0 +1,98 @@
+# ============================================================
+# 执行信息查询 CLI - 配置文件（示例）
+# ============================================================
+# 复制此文件为 zxgk.yaml 并填入你的飞书表 ID 和公司列表
+#   cp config/zxgk.example.yaml config/zxgk.yaml
+
+# --- captcha-solver 服务 ---
+captcha_server: "http://localhost:8001"
+
+# --- 浏览器配置 ---
+browser:
+  headless: true
+  viewport: [1920, 1080]
+
+# --- WAF 防护参数 ---
+waf:
+  captcha_max_retries: 8
+  cooldown_on_block_sec: 300
+  company_interval_sec: 30
+  screenshot_interval_sec: 2
+  max_consecutive_fails: 3
+
+# --- 截图（默认开启，--no-screenshots 可关闭） ---
+screenshots:
+  enabled: true
+
+# --- 子站配置 ---
+subsites:
+  zhixing:
+    name: "被执行人信息"
+    css_selector: "div.bzxrxx_nor"
+    extra_wait_sec: 5
+  shixin:
+    name: "失信被执行人"
+    css_selector: "div.sxbzxr_nor"
+    extra_wait_sec: 5
+  xgl:
+    name: "限制消费人员"
+    css_selector: "div.xzxfry_nor"
+    extra_wait_sec: 5
+
+# --- 飞书多维表格（token 从环境变量 FEISHU_APP_TOKEN 读取） ---
+feishu:
+  app_token: "${FEISHU_APP_TOKEN}"
+  raw_table:
+    id: "tbl_xxxxxxxxxxxxx"
+    fields:
+      auto_key: "fld_xxxxx"
+      name: "fld_xxxxx"
+      case_no: "fld_xxxxx"
+      view_id: "fld_xxxxx"
+      file_date: "fld_xxxxx"
+      sync_date: "fld_xxxxx"
+      is_new: "fld_xxxxx"
+      is_duplicate: "fld_xxxxx"
+      case_main_link: "fld_xxxxx"
+      xgl_link: "fld_xxxxx"
+      shixin_link: "fld_xxxxx"
+  detail_table:
+    id: "tbl_xxxxxxxxxxxxx"
+    fields:
+      auto_key: "fld_xxxxx"
+      case_no_extract: "fld_xxxxx"
+      name_extract: "fld_xxxxx"
+      case_no_lookup: "fld_xxxxx"
+      name_lookup: "fld_xxxxx"
+      file_date_lookup: "fld_xxxxx"
+      org_code: "fld_xxxxx"
+      court: "fld_xxxxx"
+      amount: "fld_xxxxx"
+      amount_yuan: "fld_xxxxx"
+      screenshot: "fld_xxxxx"
+      ai_result: "fld_xxxxx"
+      is_shixin: "fld_xxxxx"
+      shixin_date: "fld_xxxxx"
+      is_xgl: "fld_xxxxx"
+      xgl_date: "fld_xxxxx"
+      final_status: "fld_xxxxx"
+      verify_status: "fld_xxxxx"
+      cancel_date: "fld_xxxxx"
+      block_reason: "fld_xxxxx"
+      is_duplicate: "fld_xxxxx"
+      nominal_type: "fld_xxxxx"
+      raw_link: "fld_xxxxx"
+    dedup_options:
+      keep: "opt_xxxxx"
+      duplicate: "opt_xxxxx"
+
+# --- 输出 ---
+output:
+  dir: "output"
+  screenshots_dir: "output/screenshots"
+
+# --- 公司列表（示例，用户自行替换） ---
+companies:
+  - "示例公司A有限公司"
+  - "示例公司B有限公司"
+  - "示例公司C有限公司"

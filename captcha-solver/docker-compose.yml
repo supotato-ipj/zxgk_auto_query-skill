@@ -1,0 +1,12 @@
+services:
+  captcha-solver:
+    build: .
+    ports:
+      - "8001:8000"
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8000
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=*
+    restart: unless-stopped
+    mem_limit: 2g
