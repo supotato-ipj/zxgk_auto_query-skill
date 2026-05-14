@@ -26,12 +26,17 @@ done
 
 # ── Step 1: Python venv + pip 依赖 ──
 echo "[1/5] Python 虚拟环境 ..."
+python3 -m venv --help > /dev/null 2>&1 || {
+    echo "⚠️  python3-venv 未安装，请先运行："
+    echo "  Ubuntu: sudo apt install python3-venv python3-pip"
+    exit 1
+}
 if [ ! -d venv ]; then
     python3 -m venv venv
 fi
 source venv/bin/activate
 pip install -q -U pip
-pip install -q playwright==1.58.0 playwright-stealth==2.0.3 PyYAML==6.0.3 requests==2.33.1
+pip install -q --default-timeout=120 playwright==1.58.0 playwright-stealth==2.0.3 PyYAML==6.0.3 requests==2.33.1
 echo "  ✅"
 
 # ── Step 2: Playwright Chromium ──
@@ -58,7 +63,7 @@ if [ -d "$CAPTCHA_DIR" ]; then
     fi
     source venv/bin/activate
     pip install -q -U pip
-    pip install -q fastapi uvicorn paddlepaddle paddleocr opencv-python-headless numpy pillow python-multipart
+    pip install -q --default-timeout=120 fastapi uvicorn paddlepaddle paddleocr opencv-python-headless numpy pillow python-multipart
     echo "  captcha-solver ✅"
 else
     echo "  ⚠️  captcha-solver 目录未找到，跳过（可稍后手动安装）"

@@ -3,6 +3,12 @@
 中国执行信息公开网（zxgk.court.gov.cn）自动化查询工具。
 每日自动查询被执行人/失信被执行人/限制消费人员三子站。
 
+## 系统要求
+
+- **内存 ≥ 4GB RAM**（captcha-solver OCR 模型 ~1.5GB + Chromium ~500MB）
+- Python 3.10+、npm、Docker（可选，推荐 OCR 服务使用 Docker）
+- 支持 Ubuntu、macOS
+
 ## 快速开始
 
 ```bash
