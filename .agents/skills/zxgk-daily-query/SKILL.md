@@ -1,11 +1,11 @@
 ---
 name: zxgk-daily-query
-description: 每日执行信息查询全流程 — Phase A 文本查询+飞书写入 → Phase B 截图回填。固化执行步骤，禁止捷径。
+description: 每日执行信息查询全流程 — Phase A 文本查询+SQLite/飞书写入 → Phase B 截图回填。固化执行步骤，禁止捷径。
 ---
 
 # 执行信息查询 — 每日全流程
 
-> 自动化查询 zxgk.court.gov.cn 三子站，写入飞书多维表格，回填缺失截图。
+> 自动化查询三子站，结果写入本地 SQLite（无需飞书）+ 可选飞书多维表格，回填缺失截图。
 > 脚本位置：当前目录。所有命令默认已 `cd` 到此目录。
 
 ## 前置条件：获取项目文件
@@ -35,9 +35,9 @@ cd zxgk-daily-query
 # 1. 安装依赖
 bash setup.sh
 
-# 2. 配置飞书 token
+# 2. （可选）配置飞书 token，不配则仅用 SQLite 本地储存
 cp .env.example .env
-# 编辑 .env 填入你的 FEISHU_APP_TOKEN
+# 编辑 .env 填入你的 FEISHU_APP_TOKEN（跳过则默认存 SQLite）
 source .env
 
 # 3. 验证环境
@@ -56,7 +56,7 @@ bash smoke_test.sh
 
 ## 强制流程
 
-### Phase A：文本查询 + 写飞书
+### Phase A：文本查询 + 写入储存
 
 ```bash
 cd "$(dirname "$0")" && source venv/bin/activate && bash cron_daily_query.sh
@@ -64,10 +64,10 @@ cd "$(dirname "$0")" && source venv/bin/activate && bash cron_daily_query.sh
 
 此脚本自动完成：
 1. 启动 captcha-solver（如未运行）
-2. zhixing 子站批量查询 → 输出 batch JSON → writers/feishu.py 写入 raw 表 + 上传截图
+2. zhixing 子站批量查询 → 输出 batch JSON → **SQLite 本地备份（始终）** → 飞书写入 + 上传截图（仅当 lark-cli 已认证时）
 3. shixin 子站批量查询 → 同上 + --cross-ref 更新案件主表「是否失信」
 4. xgl 子站批量查询 → 同上 + --cross-ref 更新案件主表「是否限高」
-5. **Phase B 截图回填**（自动检查案件主表 empty(截图) 并补全）
+5. **Phase B 截图回填**（仅飞书启用时；自动检查案件主表 empty(截图) 并补全）
 6. 生成汇总 JSON → `/tmp/zxgk_summary_{date}.json`
 
 ### 验证 Phase A 结果
@@ -146,12 +146,18 @@ ScreenshotBackfiller(load_config(), '$(date +%Y%m%d)-zhixing').run()
 
 ### Phase A 写入失败（401 / lark-cli auth）
 
+> 数据已存入本地 SQLite（`output/zxgk_results.db`），不会丢失。飞书仅影响远程同步。
+
 ```bash
 # 检查 lark-cli 授权状态
 lark-cli api GET '/open-apis/authen/v1/user_info' --as user
 
 # 如果返回 401 或 error，需要重新登录：
 lark-cli auth
+
+# 重新登录后可手动补写飞书：
+source venv/bin/activate
+python3 -m writers.feishu --input output/zxgk_batch_$(date +%Y%m%d)_zhixing.json --subsite zhixing
 ```
 
 ### 验证码服务异常
@@ -193,8 +199,9 @@ python3 zxgk_query.py --company "XX公司" --subsite zhixing --mode text-only --
 | `setup.sh` | 首次安装 — 依赖全自动装好 |
 | `zxgk_query.py` | 主 CLI — 查询/截图/Phase B |
 | `cron_daily_query.sh` | 编排脚本 — Phase A + B 全流程 |
-| `writers/feishu.py` | 飞书读写 — raw表写入/去重/交叉匹配/截图上传 |
-| `writers/` | Phase 2 可插拔储存层（SQLite/Excel/飞书自建） |
+| `writers/sqlite.py` | 本地 SQLite 储存（始终写入，零依赖） |
+| `writers/feishu.py` | 飞书读写 — raw表写入/去重/交叉匹配/截图上传（可选） |
+| `writers/` | 可插拔储存层（SQLite/Excel/飞书已有表/飞书自建） |
 | `diagnose_subsites.py` | DOM 诊断 |
 | `smoke_test.sh` | 冒烟测试 |
 | `config/zxgk.yaml` | 配置（子站/飞书字段/WAF参数/公司列表） |
@@ -205,7 +212,7 @@ python3 zxgk_query.py --company "XX公司" --subsite zhixing --mode text-only --
 
 | 变量 | 必须 | 说明 | 获取位置 |
 |------|------|------|---------|
-| `FEISHU_APP_TOKEN` | 是 | 飞书多维表格 app token | 飞书 Base URL 中提取 |
+| `FEISHU_APP_TOKEN` | 否（可选） | 飞书多维表格 app token；不设则仅用 SQLite 本地储存 | 飞书 Base URL 中提取 |
 
 ---
 
@@ -219,14 +226,17 @@ zxgk_query.py (Playwright)
       │
       ├── output/zxgk_batch_{date}_{subsite}.json
       │
-      ▼
-writers/feishu.py
-      ├── raw 表 (tbl_raw_xxxxx) — 每日快照
-      │     └── DuplexLink「案件主表」
-      │           │
-      │           ▼
-      └── 案件主表 (tbl_case_xxxxx)
-            ├── 案号提取 / 是否失信 / 是否限高
-            ├── 截图 (Phase B 回填)
-            └── raw_一级 (反向 Link → raw 表)
+      ├──▼
+      │ writers/sqlite.py  →  output/zxgk_results.db（始终写入，零依赖）
+      │
+      └──▼ (仅当 FEISHU_APP_TOKEN 已配置且 lark-cli 已认证)
+        writers/feishu.py
+            ├── raw 表 (tbl_raw_xxxxx) — 每日快照
+            │     └── DuplexLink「案件主表」
+            │           │
+            │           ▼
+            └── 案件主表 (tbl_case_xxxxx)
+                  ├── 案号提取 / 是否失信 / 是否限高
+                  ├── 截图 (Phase B 回填)
+                  └── raw_一级 (反向 Link → raw 表)
 ```
