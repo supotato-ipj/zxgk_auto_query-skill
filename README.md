@@ -2,6 +2,9 @@
 
 自动化查询被执行人/失信被执行人/限制消费人员三子站的每日工具。
 
+> ⚠️ **前置条件**：依赖本地 OCR 验证码识别服务（`localhost:8001`）。
+> 可安装内置 PaddleOCR（`setup.sh` 自动处理），或自行部署兼容 `GET /health` + `POST /solve` 接口的服务。
+
 ## 系统要求
 
 - **内存 ≥ 4GB RAM**（captcha-solver OCR 模型 ~1.5GB + Chromium ~500MB）
