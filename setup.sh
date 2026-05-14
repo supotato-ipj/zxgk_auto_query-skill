@@ -52,19 +52,53 @@ fi
 echo "  ✅"
 
 # ── Step 4: captcha-solver ──
-echo "[4/5] captcha-solver OCR 服务 ..."
+echo "[4/5] captcha-solver OCR 验证码识别服务 ..."
+echo ""
 
-# captcha-solver，如果本地没有则跳过安装
 CAPTCHA_DIR="$DIR/captcha-solver"
 if [ -d "$CAPTCHA_DIR" ]; then
-    cd "$CAPTCHA_DIR"
-    if [ ! -d venv ]; then
-        python3 -m venv venv
-    fi
-    source venv/bin/activate
-    pip install -q -U pip
-    pip install -q --default-timeout=120 fastapi uvicorn paddlepaddle paddleocr opencv-python-headless numpy pillow python-multipart
-    echo "  captcha-solver ✅"
+    echo "本地 OCR 模型（PaddleOCR，约 1.5GB）安装选项："
+    echo "  [1] 安装推荐的 PaddleOCR（pip install paddlepaddle paddleocr）"
+    echo "  [2] 跳过 — 稍后自行部署（Docker 或裸机 venv）"
+    echo "  [3] 跳过 — 已有可用的 captcha-solver 在 localhost:8001"
+    echo ""
+    printf "请选择 [1/2/3]（默认 2）："
+    read -r OCR_CHOICE </dev/tty || OCR_CHOICE="2"
+    OCR_CHOICE="${OCR_CHOICE:-2}"
+    echo ""
+
+    case "$OCR_CHOICE" in
+        1)
+            echo "  安装 PaddleOCR（首次下载约 1.5GB，请耐心等待）..."
+            cd "$CAPTCHA_DIR"
+            if [ ! -d venv ]; then
+                python3 -m venv venv
+            fi
+            source venv/bin/activate
+            pip install -q -U pip
+            pip install -q --default-timeout=120 fastapi uvicorn paddlepaddle paddleocr opencv-python-headless numpy pillow python-multipart
+            echo "  captcha-solver ✅"
+            cd "$DIR"
+            ;;
+        2)
+            echo "  ℹ️  已跳过 OCR 安装。稍后可自行部署："
+            echo "    Docker:  cd captcha-solver && docker compose up -d"
+            echo "    裸机:    cd captcha-solver && source venv/bin/activate && PORT=8001 python main.py"
+            echo ""
+            echo "  请确保 localhost:8001 提供以下端点："
+            echo "    GET  /health  → {\"status\":\"healthy\"}"
+            echo "    POST /solve   → {\"success\":true,\"text\":\"xxxx\"}"
+            echo "  captcha-solver ⏭️"
+            ;;
+        3)
+            echo "  ℹ️  已跳过 OCR 安装，假定已有服务运行在 localhost:8001"
+            echo "  captcha-solver ⏭️（使用已有服务）"
+            ;;
+        *)
+            echo "  ⚠️  无效选项，跳过安装（默认行为）"
+            echo "  captcha-solver ⏭️"
+            ;;
+    esac
 else
     echo "  ⚠️  captcha-solver 目录未找到，跳过（可稍后手动安装）"
 fi

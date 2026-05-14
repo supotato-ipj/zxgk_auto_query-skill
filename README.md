@@ -6,6 +6,7 @@
 
 - **内存 ≥ 4GB RAM**（captcha-solver OCR 模型 ~1.5GB + Chromium ~500MB）
 - Python 3.10+、npm、Docker（可选，推荐 OCR 服务使用 Docker）
+- OCR 服务：推荐内置 PaddleOCR，也支持自行部署（Docker / 自定义，兼容 localhost:8001 的 `/solve` API）
 - 支持 Ubuntu、macOS
 
 ## 快速开始

@@ -44,7 +44,7 @@ source .env
 bash smoke_test.sh
 ```
 
-> setup.sh 中途会提示你运行 `lark-cli auth` 登录飞书，这是正常的。
+> setup.sh 会询问是否安装本地 OCR 模型（PaddleOCR ~1.5GB），可选择跳过用自己的方案。也会提示 `lark-cli auth` 登录飞书。
 
 ---
 
@@ -161,6 +161,8 @@ python3 -m writers.feishu --input output/zxgk_batch_$(date +%Y%m%d)_zhixing.json
 ```
 
 ### 验证码服务异常
+
+> 如使用自己的 OCR 方案，确保 localhost:8001 提供 `GET /health` 和 `POST /solve` 接口，两者兼容即可。
 
 ```bash
 # Docker 方式（推荐）
