@@ -38,6 +38,9 @@ import yaml
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
+import cv2
+import numpy as np
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -615,6 +618,65 @@ class QueryEngine:
         return list(all_records.values())
 
 # ---------------------------------------------------------------------------
+# OpenCV 弹窗提取 — 纯像素分析，不依赖 DOM 选择器
+# ---------------------------------------------------------------------------
+def extract_popup_from_bytes(screenshot_bytes, output_path):
+    """
+    从全页截图 bytes 中用 OpenCV 精准提取弹窗区域（全程内存，无中间磁盘 IO）。
+    返回 (width, height) or (None, None)
+    """
+    nparr = np.frombuffer(screenshot_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return None, None
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    h_img, w_img = img.shape[:2]
+
+    # Step 1-2: Canny 边缘 → 膨胀 → 轮廓
+    edges = cv2.Canny(gray, 50, 150)
+    dilated = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=2)
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Step 3: 筛选候选矩形（尺寸 + 位置）
+    candidates = []
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
+        if (400 < w < 1400 and 150 < h < 500 and y > h_img * 0.35):
+            candidates.append((w * h, x, y, w, h))
+
+    if not candidates:
+        return None, None
+
+    # Step 4: 最大面积 → 粗裁
+    area, x, y, cw, ch = max(candidates, key=lambda v: v[0])
+    crop = img[y:y + ch, x:x + cw]
+    crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+
+    # Step 5: 白底检测
+    mask = cv2.inRange(crop_gray, 230, 255)
+
+    # Step 6: 列投影 → 精裁边界
+    col_proj = np.sum(mask, axis=0) / ch
+    content_cols = col_proj > 0.1
+
+    if not np.any(content_cols):
+        l, r = int(cw * 0.25), int(cw * 0.92)
+    else:
+        changes = np.diff(np.concatenate([[False], content_cols, [False]]).astype(int))
+        starts = np.where(changes == 1)[0]
+        ends = np.where(changes == -1)[0]
+        longest_idx = np.argmax(ends - starts)
+        l, r = starts[longest_idx], ends[longest_idx]
+
+    l = max(0, int(l) - 8)
+    r = min(cw, int(r) + 8)
+
+    tight = crop[:, l:r]
+    cv2.imwrite(str(output_path), tight)
+    return tight.shape[1], tight.shape[0]
+
+# ---------------------------------------------------------------------------
 # Module E: DetailScreenshot
 # ---------------------------------------------------------------------------
 class DetailScreenshot:
@@ -643,7 +705,11 @@ class DetailScreenshot:
         safe_case = re.sub(r"[（）()\s]", "_", case_no)[:30] if case_no else ""
         filename = f"detail_r{index}_{view_id}_{safe_case}.png"
         filepath = self.output_dir / filename
-        self.page.screenshot(path=str(filepath))
+        screenshot_bytes = self.page.screenshot(full_page=False)
+        crop_w, crop_h = extract_popup_from_bytes(screenshot_bytes, str(filepath))
+        if crop_w is None:
+            with open(str(filepath), 'wb') as f:
+                f.write(screenshot_bytes)
 
         # 关闭弹窗
         self.page.evaluate("""
@@ -950,15 +1016,11 @@ class ScreenshotBackfiller:
             return False
 
         time.sleep(2)
-        try:
-            page.wait_for_selector(
-                '.ui-dialog, .modal, .dialog, .layui-layer-content, [role="dialog"]',
-                timeout=5000)
-            time.sleep(1)
-        except Exception:
-            pass
 
-        page.screenshot(path=output_path, full_page=False)
+        screenshot_bytes = page.screenshot(full_page=False)
+        crop_w, crop_h = extract_popup_from_bytes(screenshot_bytes, output_path)
+        if crop_w is None:
+            page.screenshot(path=output_path, full_page=False)
 
         # 关闭弹窗
         page.evaluate("""

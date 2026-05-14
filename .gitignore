@@ -18,8 +18,7 @@ reference/
 diagnose_results.json
 *.log
 
-# 含私人数据（caseNo/record_id）
-backfill_4_records.py
+# 含私人数据
 INCIDENTS.md
 
 # 编辑器/Agent

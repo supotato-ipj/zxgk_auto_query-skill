@@ -36,7 +36,7 @@ if [ ! -d venv ]; then
 fi
 source venv/bin/activate
 pip install -q -U pip
-pip install -q --default-timeout=120 playwright==1.58.0 playwright-stealth==2.0.3 PyYAML==6.0.3 requests==2.33.1
+pip install -q --default-timeout=120 playwright==1.58.0 playwright-stealth==2.0.3 PyYAML==6.0.3 requests==2.33.1 opencv-python-headless numpy
 echo "  ✅"
 
 # ── Step 2: Playwright Chromium ──
@@ -77,7 +77,12 @@ if [ -d "$CAPTCHA_DIR" ]; then
             source venv/bin/activate
             pip install -q -U pip
             pip install -q --default-timeout=120 fastapi uvicorn paddlepaddle paddleocr opencv-python-headless numpy pillow python-multipart
-            echo "  captcha-solver ✅"
+            if python3 -c "from paddleocr import PaddleOCR; print('paddleocr OK')" 2>/dev/null; then
+                echo "  captcha-solver ✅"
+            else
+                echo "  ⚠️  paddleocr 导入失败，OCR 识别可能无法正常工作"
+                echo "  手动验证: cd captcha-solver && source venv/bin/activate && python3 -c 'from paddleocr import PaddleOCR'"
+            fi
             cd "$DIR"
             ;;
         2)
