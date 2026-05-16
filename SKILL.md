@@ -23,6 +23,8 @@ cd zxgk-daily-query
 
 所有后续命令默认已 `cd` 到此目录。
 
+**Python 版本要求：** 需要 Python 3.11+（`asyncio.TaskGroup` 用于异步并发模式）。
+
 ---
 
 ## ⚠️ OCR 模型部署警示（Agent 强制执行）

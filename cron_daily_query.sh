@@ -13,6 +13,9 @@ DATE=$(date +%Y%m%d)
 SUMMARY_FILE="/tmp/zxgk_summary_${DATE}.json"
 LOG_FILE="/tmp/zxgk_cron_${DATE}.log"
 
+# ── 异步并发模式（取消注释以启用三子站并行查询）──
+# PARALLEL=true
+
 # 互斥锁：防止两个实例同时运行（mkdir 原子操作，POSIX 跨平台）
 LOCK_DIR="/tmp/zxgk_cron.lockdir"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -156,9 +159,53 @@ run_subsite() {
 # ────────────────────────────────────
 # Step 1-3: 三子站查询
 # ────────────────────────────────────
+if [ "${PARALLEL:-false}" = true ]; then
+    echo ""
+    echo "--- 异步并发模式：同时查询 zhixing/shixin/xgl ---"
+
+    # 启动前清理残留 Chromium（兜底 Python 层清理不了的情况）
+    pkill -f "chromium-browser.*playwright" 2>/dev/null || true
+    sleep 2
+
+    # 构建 CLI 参数
+    ASYNC_ARGS=(--async --batch "$COMPANIES" --mode text-only --output-dir "$OUTPUT_DIR")
+    echo "  命令: python3 zxgk_query.py ${ASYNC_ARGS[*]}"
+    set -o pipefail
+    python3 zxgk_query.py "${ASYNC_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
+    ASYNC_EXIT=$?
+    set +o pipefail
+    echo "  异步并发完成 (exit=$ASYNC_EXIT)"
+
+    # 写入 SQLite + 飞书（从已生成的 batch JSON）
+    for subsite_info in "zhixing:被执行人:" "shixin:失信被执行人:--cross-ref" "xgl:限制消费人员:--cross-ref"; do
+        IFS=':' read -r subsite label cross_ref <<< "$subsite_info"
+        json_path="$OUTPUT_DIR/zxgk_batch_${DATE}_${subsite}.json"
+
+        if [ -f "$json_path" ]; then
+            records=$(python3 -c "import json; print(json.load(open('$json_path'))['summary']['total_records'])" 2>/dev/null || echo 0)
+            if [ "$records" -gt 0 ] 2>/dev/null; then
+                echo "[${label}] 写入 SQLite (${records} 条) ..."
+                python3 -m writers.sqlite --input "$json_path" --db "$OUTPUT_DIR/zxgk_results.db" 2>&1 | tee -a "$LOG_FILE" || true
+
+                if [ "$SKIP_FEISHU" = false ]; then
+                    echo "[${label}] 写入飞书 (${records} 条) ..."
+                    python3 -m writers.feishu --input "$json_path" --subsite "$subsite" $cross_ref \
+                        --screenshots "$OUTPUT_DIR/screenshots" 2>&1 | tee -a "$LOG_FILE" || true
+                fi
+            else
+                echo "[${label}] 无记录，跳过写入"
+            fi
+            echo "[${label}] ✅"
+        else
+            echo "[${label}] ⚠️  JSON 未生成，可能无匹配记录或查询失败"
+        fi
+    done
+else
+    # ── 顺序模式（默认）──
 run_subsite "zhixing" "被执行人"    "$OUTPUT_DIR/zxgk_batch_${DATE}_zhixing.json" ""
 run_subsite "shixin"  "失信被执行人" "$OUTPUT_DIR/zxgk_batch_${DATE}_shixin.json"  "--cross-ref"
 run_subsite "xgl"     "限制消费人员" "$OUTPUT_DIR/zxgk_batch_${DATE}_xgl.json"     "--cross-ref"
+fi  # PARALLEL
 
 # ────────────────────────────────────
 # Step 4: 生成汇总 JSON 供 AI 读取
@@ -220,7 +267,8 @@ if [ "$SKIP_FEISHU" = false ]; then
     echo "[5] Phase B 截图回填 ..."
     python3 -c "
 import sys; sys.path.insert(0, '$WORKSPACE')
-from zxgk_query import ScreenshotBackfiller, load_config
+from zxgk.backfill import ScreenshotBackfiller
+from zxgk.config import load_config
 config = load_config()
 backfiller = ScreenshotBackfiller(config, batch_id='${DATE}-zhixing')
 backfiller.run()

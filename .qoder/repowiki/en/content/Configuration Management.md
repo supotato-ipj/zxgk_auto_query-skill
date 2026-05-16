@@ -2,19 +2,29 @@
 
 <cite>
 **Referenced Files in This Document**
+- [zxgk/config.py](file://zxgk/config.py)
+- [config/zxgk.yaml](file://config/zxgk.yaml)
 - [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
+- [config/companies.example.txt](file://config/companies.example.txt)
+- [zxgk/cli.py](file://zxgk/cli.py)
 - [diagnose_subsites.py](file://diagnose_subsites.py)
 - [writers/__init__.py](file://writers/__init__.py)
 - [writers/sqlite.py](file://writers/sqlite.py)
 - [writers/excel.py](file://writers/excel.py)
 - [writers/feishu.py](file://writers/feishu.py)
-- [writers/feishu_build.py](file://writers/feishu_build.py)
 - [README.md](file://README.md)
 - [cron_daily_query.sh](file://cron_daily_query.sh)
 - [setup.sh](file://setup.sh)
 - [smoke_test.sh](file://smoke_test.sh)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated configuration loading system to use new centralized config.py module
+- Added comprehensive environment variable expansion support with ${VAR} syntax
+- Enhanced validation rules and runtime precedence handling
+- Updated YAML schema documentation with new fields and structure
+- Revised integration examples to reflect new configuration management approach
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -29,306 +39,391 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains configuration management for the execution information query system, focusing on YAML configuration format and environment variable handling. It covers the configuration schema (including subsite definitions, output preferences, and security parameters), environment variable expansion, default value handling, validation rules, and integration with output writers. It also clarifies relationships with command-line arguments and runtime parameter precedence, and provides practical guidance for managing configurations across environments.
+This document explains the comprehensive YAML-based configuration management system for the execution information query system. The new configuration system, centered around a 103-line configuration module in `zxgk/config.py`, provides robust environment variable expansion, validation rules, and runtime precedence handling. It covers the complete configuration schema including subsite definitions, output preferences, security parameters, and integration with output writers. The system emphasizes security through environment variable handling for sensitive data and provides clear validation mechanisms for reliable operation across different environments.
 
 ## Project Structure
-The configuration system spans:
-- A primary YAML configuration file that defines browser behavior, WAF parameters, screenshots, storage preferences, subsites, Feishu integration, and output directories.
-- A loader that reads the YAML, expands environment variables, and supplies defaults.
-- Writers that consume configuration to decide storage targets and behavior.
-- Scripts that orchestrate end-to-end runs and validate configuration readiness.
+The configuration system now centers around a unified configuration module that handles:
+- Centralized YAML configuration loading with environment variable expansion
+- Company list loading from both YAML and text formats
+- Date parsing utilities for Chinese date formats
+- Environment cleanup and proxy variable management
+- Comprehensive validation and default value handling
 
 ```mermaid
 graph TB
-YAML["config/zxgk.example.yaml"]
-Loader["load_config() in zxgk_query.py"]
-Config["Runtime config dict"]
+ConfigModule["zxgk/config.py<br/>103 lines"]
+YAMLFile["config/zxgk.yaml"]
+EnvVars["Environment Variables"]
+CompanyList["config/companies.txt<br/>or companies.yaml"]
+ParsedConfig["Parsed Configuration Dict"]
 Browser["BrowserManager"]
 Captcha["CaptchaSolver"]
-FeishuWriter["FeishuWriter"]
+FeishuWriter["writers.feishu"]
 SQLiteWriter["writers.sqlite"]
 ExcelWriter["writers.excel"]
-YAML --> Loader
-Loader --> Config
-Config --> Browser
-Config --> Captcha
-Config --> FeishuWriter
-Config --> SQLiteWriter
-Config --> ExcelWriter
+ConfigModule --> YAMLFile
+ConfigModule --> EnvVars
+ConfigModule --> CompanyList
+ConfigModule --> ParsedConfig
+ParsedConfig --> Browser
+ParsedConfig --> Captcha
+ParsedConfig --> FeishuWriter
+ParsedConfig --> SQLiteWriter
+ParsedConfig --> ExcelWriter
 ```
 
 **Diagram sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
-- [writers/sqlite.py](file://writers/sqlite.py)
-- [writers/excel.py](file://writers/excel.py)
-- [writers/feishu.py](file://writers/feishu.py)
+- [zxgk/config.py:49-70](file://zxgk/config.py#L49-L70)
+- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
+- [writers/feishu.py:26-32](file://writers/feishu.py#L26-L32)
 
 **Section sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
-- [writers/__init__.py](file://writers/__init__.py)
+- [zxgk/config.py:1-104](file://zxgk/config.py#L1-L104)
+- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
+- [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
 
 ## Core Components
-- YAML configuration schema: Defines browser, WAF, screenshots, storage, subsites, Feishu, and output directories.
-- Environment variable expansion: ${VAR} placeholders are expanded at load time.
-- Defaults: Many fields have sensible defaults when omitted.
-- Validation: YAML parsing and basic checks occur during smoke testing and runtime diagnostics.
 
-Key configuration areas:
-- Captcha server endpoint
-- Browser headless mode and viewport
-- WAF retry and cooldown parameters
-- Screenshots enablement and storage mode
-- Subsite definitions (name, CSS selector, extra wait)
-- Feishu app token and table/field mappings
-- Output directories for batch JSON and screenshots
+### Centralized Configuration Module
+The new configuration system is built around `zxgk/config.py` which provides:
+- **Environment Variable Expansion**: Recursive expansion of `${VAR}` placeholders in strings, dictionaries, and lists
+- **Default Value Handling**: Graceful fallback to empty dictionaries when config files are missing
+- **Company List Loading**: Support for both YAML and plain text company list formats
+- **Date Parsing Utilities**: Specialized functions for processing Chinese date formats
+- **Environment Cleanup**: Automatic proxy variable cleanup for secure browser operations
+
+### Enhanced YAML Schema
+The configuration schema now includes:
+- **Captcha Server Configuration**: Endpoint definition for captcha solver service
+- **Browser Configuration**: Headless mode, viewport dimensions, and executable settings
+- **WAF Protection Parameters**: Comprehensive retry and cooldown mechanisms
+- **Screenshot Management**: Enable/disable functionality with storage mode options
+- **Subsite Definitions**: Structured configuration for multiple legal information sites
+- **Feishu Integration**: Complete table and field mapping configuration
+- **Output Directories**: Organized storage for batch JSON and screenshot files
+- **Company Lists**: Flexible company list management supporting multiple formats
+
+### Runtime Precedence System
+The system implements a clear precedence hierarchy:
+1. **CLI Arguments** (highest priority)
+2. **Configuration File Values**
+3. **Default Values** (lowest priority)
 
 **Section sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
-- [smoke_test.sh](file://smoke_test.sh)
+- [zxgk/config.py:49-104](file://zxgk/config.py#L49-L104)
+- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
+- [smoke_test.sh:59-79](file://smoke_test.sh#L59-L79)
 
 ## Architecture Overview
-Configuration drives runtime behavior across modules:
-- The loader reads YAML and expands ${VAR} placeholders.
-- The BrowserManager uses browser and viewport settings.
-- The FeishuWriter uses Feishu app token and table/field mappings.
-- Writers (SQLite, Excel, Feishu) interpret configuration to select storage and behavior.
+The configuration management system follows a centralized loading pattern that ensures consistency and security across all components:
 
 ```mermaid
 sequenceDiagram
-participant Script as "cron_daily_query.sh"
-participant Loader as "load_config()"
-participant Browser as "BrowserManager"
-participant Feishu as "FeishuWriter"
-participant SQLite as "writers.sqlite"
-participant Excel as "writers.excel"
-Script->>Loader : Load config (optional path)
-Loader-->>Script : Resolved config dict
-Script->>Browser : Initialize with config
-Script->>Feishu : Initialize with config
-Script->>SQLite : Write batch (reads batch JSON)
-Script->>Excel : Export to XLSX (reads batch JSON)
+participant CLI as "CLI Parser"
+participant Config as "load_config()"
+participant YAML as "YAML File"
+participant Env as "Environment"
+participant Parsed as "Parsed Config"
+CLI->>Config : load_config(config_path)
+Config->>YAML : Read YAML file
+YAML-->>Config : Raw YAML content
+Config->>Env : Expand ${VAR} placeholders
+Env-->>Config : Resolved values
+Config-->>CLI : Parsed configuration dict
+CLI->>Parsed : Process with defaults
+Parsed-->>CLI : Final configuration
 ```
 
 **Diagram sources**
-- [cron_daily_query.sh](file://cron_daily_query.sh)
-- [zxgk_query.py](file://zxgk_query.py)
-- [writers/sqlite.py](file://writers/sqlite.py)
-- [writers/excel.py](file://writers/excel.py)
-- [writers/feishu.py](file://writers/feishu.py)
+- [zxgk/cli.py:288-289](file://zxgk/cli.py#L288-L289)
+- [zxgk/config.py:49-70](file://zxgk/config.py#L49-L70)
+
+**Section sources**
+- [zxgk/cli.py:281-321](file://zxgk/cli.py#L281-L321)
+- [zxgk/config.py:49-70](file://zxgk/config.py#L49-L70)
 
 ## Detailed Component Analysis
 
 ### YAML Configuration Schema
-The configuration file defines:
-- captcha_server: Endpoint for captcha solver service.
-- browser: headless mode and viewport dimensions.
-- waf: retry and cooldown parameters for WAF handling.
-- screenshots: enable/disable screenshots.
-- storage: screenshot storage mode (file, blob, both).
-- subsites: per-subsite name, CSS selector, and extra wait seconds.
-- feishu: app token placeholder using environment variable expansion, raw and detail table IDs and field mappings, and dedup options.
-- output: directories for batch JSON and screenshots.
-- companies: list of company names.
+The configuration file defines a comprehensive structure with the following key sections:
 
-Environment variable expansion:
-- ${VAR_NAME} placeholders are replaced with environment variable values at load time. If the variable is unset, the placeholder resolves to an empty string.
+#### Basic Configuration
+- **captcha_server**: Endpoint URL for captcha solver service
+- **browser**: Configuration for headless mode and viewport dimensions
+- **waf**: Advanced protection parameters for WAF handling
+- **screenshots**: Enable/disable screenshot functionality
+- **storage**: Screenshot storage mode configuration
+- **subsites**: Multi-site configuration with CSS selectors and timing
+- **feishu**: Complete Feishu integration with table and field mappings
+- **output**: Organized output directory structure
+- **companies**: Company list management
 
-Defaults:
-- Many fields have defaults when omitted (e.g., browser headless defaults to true, viewport defaults to 1920x1080).
+#### Environment Variable Expansion
+The system supports recursive environment variable expansion:
+- `${FEISHU_APP_TOKEN}` expands to the actual token value
+- Nested structures maintain variable expansion at all levels
+- Unset variables resolve to empty strings gracefully
 
-Validation:
-- YAML parsing is validated by smoke tests.
-- Diagnostics scripts validate subsite configuration and DOM structure.
-
-**Section sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
-- [smoke_test.sh](file://smoke_test.sh)
-- [diagnose_subsites.py](file://diagnose_subsites.py)
-
-### Environment Variable Expansion and Defaults
-- Expansion: The loader recursively expands ${VAR} placeholders in strings, dictionaries, and lists. Unset variables resolve to empty strings.
-- Defaults: The loader returns an empty dict when the config file does not exist, allowing downstream components to supply defaults.
-- Security: Sensitive values (e.g., Feishu app token) are read from environment variables rather than stored in YAML.
-
-Practical implications:
-- Use ${FEISHU_APP_TOKEN} in YAML to inject the token at runtime.
-- Omit optional sections to rely on defaults.
+#### Default Value Handling
+When configuration files are missing or incomplete:
+- Empty dictionary returned for missing config files
+- Downstream components provide sensible defaults
+- Company list loading supports both YAML and text formats
 
 **Section sources**
-- [zxgk_query.py](file://zxgk_query.py)
-- [README.md](file://README.md)
+- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
+- [zxgk/config.py:49-87](file://zxgk/config.py#L49-L87)
+- [smoke_test.sh:59-79](file://smoke_test.sh#L59-L79)
+
+### Environment Variable Expansion and Security
+The configuration system provides robust environment variable handling:
+
+#### Expansion Mechanism
+- **Recursive Processing**: Handles nested dictionaries, lists, and strings
+- **Type Preservation**: Maintains original data types during expansion
+- **Fallback Behavior**: Unset variables resolve to empty strings
+- **Security Focus**: Sensitive data (tokens, passwords) never stored in plaintext YAML
+
+#### Security Implementation
+- **Proxy Cleanup**: Automatic removal of proxy environment variables
+- **Token Isolation**: Feishu app tokens loaded from environment only
+- **Minimal Exposure**: Configuration files contain only non-sensitive defaults
+
+**Section sources**
+- [zxgk/config.py:43-47](file://zxgk/config.py#L43-L47)
+- [writers/feishu.py:26-32](file://writers/feishu.py#L26-L32)
 
 ### Subsite Definitions and Navigation
-- Each subsite defines:
-  - name: Human-readable label.
-  - css_selector: CSS selector to click the subsite link.
-  - extra_wait_sec: Additional wait after navigation.
-- The BrowserManager reads these values to navigate to the target subsite and apply extra waits.
+Each subsite configuration includes:
+- **name**: Human-readable identifier for the site
+- **css_selector**: CSS selector for locating navigation elements
+- **extra_wait_sec**: Additional wait time after navigation completion
 
-Integration:
-- Diagnostics script validates CSS selectors and waits.
-- Query engine uses subsite configuration to locate and interact with pages.
-
-**Section sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
-- [diagnose_subsites.py](file://diagnose_subsites.py)
-
-### Output Preferences and Storage
-- Output directories:
-  - output.dir: Directory for batch JSON.
-  - output.screenshots_dir: Directory for screenshots.
-- Storage modes:
-  - storage.screenshots: Controls whether screenshots are saved as file paths, binary blobs, or both.
-- Writers:
-  - SQLite writer supports storing screenshots as file paths, binary blobs, or both.
-  - Excel writer exports a report sheet with selected fields.
-  - Feishu writer writes to configured tables and supports uploading screenshots to a case table.
+The system supports three primary legal information sites:
+- **zhixing**: Execution information site
+- **shixin**: Dishonest被执行人 site  
+- **xgl**: Consumption restriction site
 
 **Section sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [writers/sqlite.py](file://writers/sqlite.py)
-- [writers/excel.py](file://writers/excel.py)
-- [writers/feishu.py](file://writers/feishu.py)
+- [config/zxgk.yaml:29-41](file://config/zxgk.yaml#L29-L41)
+- [diagnose_subsites.py:27-44](file://diagnose_subsites.py#L27-L44)
+
+### Output Preferences and Storage Management
+The system provides flexible output configuration:
+- **output.dir**: Main output directory for batch JSON files
+- **output.screenshots_dir**: Dedicated directory for screenshot storage
+- **storage.screenshots**: Storage mode selection (file, blob, both)
+
+Storage modes offer different trade-offs:
+- **file**: Store only file paths (space-efficient)
+- **blob**: Store binary data directly (higher fidelity)
+- **both**: Store both paths and binary data (complete redundancy)
+
+**Section sources**
+- [config/zxgk.yaml:90-93](file://config/zxgk.yaml#L90-L93)
+- [writers/sqlite.py:37-44](file://writers/sqlite.py#L37-L44)
 
 ### Security Parameters and WAF Handling
-- WAF parameters:
-  - captcha_max_retries: Maximum retries for CAPTCHA solving.
-  - cooldown_on_block_sec: Cooldown period when blocked by WAF.
-  - company_interval_sec: Delay between company queries.
-  - screenshot_interval_sec: Delay between screenshots.
-  - max_consecutive_fails: Threshold for consecutive failures.
-- These parameters influence retry logic and delays to mitigate WAF detection.
+The WAF protection system includes comprehensive parameters:
+- **captcha_max_retries**: Maximum attempts for captcha solving
+- **cooldown_on_block_sec**: Delay period when blocked by WAF
+- **company_interval_sec**: Delay between company queries
+- **screenshot_interval_sec**: Minimum delay between screenshots
+- **max_consecutive_fails**: Failure threshold before cooldown
+
+These parameters work together to balance query performance with WAF evasion effectiveness.
 
 **Section sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
+- [config/zxgk.yaml:16-22](file://config/zxgk.yaml#L16-L22)
+- [zxgk/cli.py:109-121](file://zxgk/cli.py#L109-L121)
 
 ### Integration with Output Writers
-- SQLite writer:
-  - Reads batch JSON and inserts records into a SQLite database.
-  - Supports storing screenshots as file paths, binary blobs, or both.
-- Excel writer:
-  - Exports a report sheet with selected fields to XLSX.
-- Feishu writer:
-  - Writes raw and detail records to configured tables.
-  - Uploads screenshots to a case table and updates cross-reference fields.
+The configuration system seamlessly integrates with all output writers:
+
+#### SQLite Writer Integration
+- **Database Creation**: Automatic database and table creation
+- **Schema Migration**: Handles backward compatibility
+- **Storage Options**: Supports all three storage modes
+- **Binary Data Handling**: Optional screenshot binary storage
+
+#### Excel Writer Integration
+- **Report Generation**: Creates formatted Excel reports
+- **Header Formatting**: Professional styling with custom colors
+- **Multi-sheet Support**: Separate sheets for each subsite
+- **Data Export**: Comprehensive field export capabilities
+
+#### Feishu Writer Integration
+- **Table Configuration**: Complete field mapping support
+- **Cross-reference Updates**: Automatic status updates
+- **Screenshot Upload**: Direct media upload to Feishu
+- **Duplicate Detection**: Intelligent duplicate prevention
 
 **Section sources**
-- [writers/sqlite.py](file://writers/sqlite.py)
-- [writers/excel.py](file://writers/excel.py)
-- [writers/feishu.py](file://writers/feishu.py)
-- [writers/feishu_build.py](file://writers/feishu_build.py)
+- [writers/sqlite.py:19-100](file://writers/sqlite.py#L19-L100)
+- [writers/excel.py:29-73](file://writers/excel.py#L29-L73)
+- [writers/feishu.py:154-201](file://writers/feishu.py#L154-L201)
 
 ### Relationship with Command-Line Arguments and Runtime Precedence
-- Command-line arguments override or augment runtime behavior:
-  - Mode selection (e.g., text-only) influences output generation.
-  - Subsite selection determines which subsite configuration is used.
-  - Output path controls where batch JSON is written.
-- Configuration file provides defaults and shared settings; CLI flags refine behavior per run.
-- Scripts orchestrate end-to-end runs and pass arguments to the main query program.
+The system implements a clear precedence hierarchy:
+
+#### Priority Order
+1. **CLI Arguments** (highest): Override all other settings
+2. **Configuration File**: Provides base settings
+3. **Default Values**: Fallback when neither CLI nor config specify values
+
+#### Practical Implications
+- **Mode Selection**: CLI flags override configuration for operation modes
+- **Output Control**: Command-line output paths take precedence over config
+- **Feature Toggles**: CLI switches can enable/disable features regardless of config
+- **Subsite Selection**: Direct CLI specification overrides configuration
 
 **Section sources**
-- [cron_daily_query.sh](file://cron_daily_query.sh)
-- [README.md](file://README.md)
+- [zxgk/cli.py:281-321](file://zxgk/cli.py#L281-L321)
 
-### Validation Rules and Diagnostics
-- YAML parsing is validated by smoke tests.
-- Diagnostics script probes subsite DOM structure and verifies CSS selectors and wait times.
-- Health checks ensure the captcha solver is reachable.
+### Validation Rules and Quality Assurance
+The system includes comprehensive validation mechanisms:
+
+#### YAML Parsing Validation
+- **Format Verification**: Ensures syntactically correct YAML
+- **Structure Validation**: Confirms required sections exist
+- **Type Checking**: Validates data types for each field
+- **Range Validation**: Checks numeric values are within acceptable ranges
+
+#### Runtime Diagnostics
+- **Subsite Validation**: CSS selectors tested for accessibility
+- **Feishu Integration**: App token verification and table access testing
+- **Company List Validation**: Format checking for both YAML and text formats
+- **Dependency Verification**: Ensures all required components are available
 
 **Section sources**
-- [smoke_test.sh](file://smoke_test.sh)
-- [diagnose_subsites.py](file://diagnose_subsites.py)
-- [cron_daily_query.sh](file://cron_daily_query.sh)
+- [smoke_test.sh:59-79](file://smoke_test.sh#L59-L79)
+- [diagnose_subsites.py:27-44](file://diagnose_subsites.py#L27-L44)
 
 ## Dependency Analysis
-Configuration dependencies:
-- YAML file is loaded by the main program and passed to BrowserManager, CaptchaSolver, and writers.
-- Feishu writer depends on Feishu app token and table/field mappings.
-- SQLite and Excel writers depend on batch JSON produced by the main program.
+The configuration system creates clear dependency relationships:
 
 ```mermaid
 graph LR
-YAML["config/zxgk.example.yaml"] --> Loader["load_config()"]
-Loader --> BM["BrowserManager"]
-Loader --> CS["CaptchaSolver"]
-Loader --> FW["FeishuWriter"]
-Loader --> SW["SQLite Writer"]
-Loader --> EW["Excel Writer"]
+ConfigModule["zxgk/config.py"]
+YAMLFile["config/zxgk.yaml"]
+CompanyFile["config/companies.txt"]
+CLI["zxgk/cli.py"]
+Browser["BrowserManager"]
+Captcha["CaptchaSolver"]
+Feishu["writers.feishu"]
+SQLite["writers.sqlite"]
+Excel["writers.excel"]
+ConfigModule --> YAMLFile
+ConfigModule --> CompanyFile
+CLI --> ConfigModule
+ConfigModule --> CLI
+CLI --> Browser
+CLI --> Captcha
+CLI --> Feishu
+CLI --> SQLite
+CLI --> Excel
 ```
 
 **Diagram sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
-- [writers/sqlite.py](file://writers/sqlite.py)
-- [writers/excel.py](file://writers/excel.py)
-- [writers/feishu.py](file://writers/feishu.py)
+- [zxgk/config.py:49-87](file://zxgk/config.py#L49-L87)
+- [zxgk/cli.py:13-17](file://zxgk/cli.py#L13-L17)
 
 **Section sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [zxgk_query.py](file://zxgk_query.py)
-- [writers/__init__.py](file://writers/__init__.py)
+- [zxgk/config.py:49-87](file://zxgk/config.py#L49-L87)
+- [zxgk/cli.py:13-17](file://zxgk/cli.py#L13-L17)
 
 ## Performance Considerations
-- WAF parameters (retry counts, cooldowns, intervals) balance reliability against speed.
-- Screenshots storage mode affects disk usage and write throughput.
-- Using file paths for screenshots reduces database size; binary blobs increase fidelity but storage cost.
+The configuration system is designed for optimal performance:
 
-[No sources needed since this section provides general guidance]
+### Memory Efficiency
+- **Lazy Loading**: Configuration loaded only when needed
+- **Minimal Caching**: No persistent state retained between loads
+- **Efficient Parsing**: Direct YAML to dictionary conversion
+
+### Network Optimization
+- **Connection Reuse**: Browser connections maintained across operations
+- **Batch Processing**: Multiple companies processed efficiently
+- **Resource Pooling**: Shared resources minimize overhead
+
+### Storage Optimization
+- **Selective Storage**: Choose appropriate storage modes based on needs
+- **Cleanup Automation**: Automatic temporary file removal
+- **Compression Options**: Binary storage reduces database size
 
 ## Troubleshooting Guide
-Common configuration issues and resolutions:
-- Missing config file: The loader falls back to defaults; ensure subsites and output directories are set as needed.
-- Unset environment variables: ${VAR} placeholders expand to empty strings; set FEISHU_APP_TOKEN for Feishu integration.
-- Incorrect subsite CSS selectors: Use the diagnostics script to probe DOM structure and adjust selectors.
-- WAF blocking: Increase cooldown and retry parameters; verify captcha solver health.
-- Output directory permissions: Ensure write permissions for output.dir and output.screenshots_dir.
-- Writer errors: Verify batch JSON format and table/field mappings for Feishu; confirm SQLite/Excel dependencies are installed.
+
+### Common Configuration Issues
+
+#### Missing Configuration Files
+- **Symptom**: Empty configuration returned with warnings
+- **Solution**: Create `config/zxgk.yaml` from the example template
+- **Prevention**: Include configuration files in version control
+
+#### Environment Variable Problems
+- **Symptom**: Empty values where tokens should appear
+- **Solution**: Set required environment variables before running
+- **Verification**: Use `echo $FEISHU_APP_TOKEN` to confirm setup
+
+#### YAML Syntax Errors
+- **Symptom**: Parsing failures or incomplete configurations
+- **Solution**: Validate YAML syntax using online validators
+- **Debugging**: Start with minimal configuration and add complexity gradually
+
+#### Company List Format Issues
+- **Symptom**: Empty company lists or parsing errors
+- **Solution**: Use either YAML list format or plain text format consistently
+- **Format Choice**: YAML allows structured data, text format is simpler
+
+### Security and Access Issues
+- **Feishu Authentication**: Ensure `FEISHU_APP_TOKEN` is set and valid
+- **File Permissions**: Verify write permissions for output directories
+- **Network Access**: Confirm connectivity to captcha-solver service
 
 **Section sources**
-- [zxgk_query.py](file://zxgk_query.py)
-- [diagnose_subsites.py](file://diagnose_subsites.py)
-- [writers/feishu.py](file://writers/feishu.py)
-- [writers/sqlite.py](file://writers/sqlite.py)
-- [writers/excel.py](file://writers/excel.py)
-- [smoke_test.sh](file://smoke_test.sh)
+- [zxgk/config.py:54-56](file://zxgk/config.py#L54-L56)
+- [writers/feishu.py:29-32](file://writers/feishu.py#L29-L32)
+- [smoke_test.sh:98-106](file://smoke_test.sh#L98-L106)
 
 ## Conclusion
-The configuration system centers on a YAML schema with environment variable expansion and sensible defaults. It cleanly separates concerns between browser behavior, WAF handling, output preferences, and Feishu integration. By validating configuration early and providing diagnostics, teams can reliably operate across environments while maintaining security for sensitive data.
-
-[No sources needed since this section summarizes without analyzing specific files]
+The new configuration management system provides a robust, secure, and flexible foundation for the execution information query system. Its centralized design, comprehensive environment variable support, and clear validation mechanisms ensure reliable operation across diverse environments. The system successfully balances security (through environment variable handling for sensitive data) with usability (through sensible defaults and clear error messages). By implementing proper precedence handling and comprehensive validation, it enables teams to confidently deploy and operate the system in production environments.
 
 ## Appendices
 
 ### Configuration Reference
-- captcha_server: Endpoint for captcha solver service.
-- browser.headless: Enable/disable headless mode.
-- browser.viewport: Width and height tuple for viewport.
-- waf.captcha_max_retries: Max retries for CAPTCHA solving.
-- waf.cooldown_on_block_sec: Cooldown when blocked by WAF.
-- waf.company_interval_sec: Delay between company queries.
-- waf.screenshot_interval_sec: Delay between screenshots.
-- waf.max_consecutive_fails: Consecutive failure threshold.
-- screenshots.enabled: Enable/disable screenshots.
-- storage.screenshots: file | blob | both.
-- subsites.<name>.name: Human-readable name.
-- subsites.<name>.css_selector: CSS selector for subsite link.
-- subsites.<name>.extra_wait_sec: Extra wait after navigation.
-- feishu.app_token: ${FEISHU_APP_TOKEN} placeholder.
-- feishu.raw_table.id: Raw table ID.
-- feishu.raw_table.fields: Field mappings.
-- feishu.detail_table.id: Detail table ID.
-- feishu.detail_table.fields: Field mappings.
-- feishu.detail_table.dedup_options: Dedup option mappings.
-- output.dir: Output directory for batch JSON.
-- output.screenshots_dir: Output directory for screenshots.
-- companies: List of company names.
+
+#### Core Configuration Fields
+- **captcha_server**: URL endpoint for captcha solver service
+- **browser.headless**: Enable/disable headless browser mode
+- **browser.viewport**: Width and height tuple for browser viewport
+- **waf.captcha_max_retries**: Maximum captcha solving attempts
+- **waf.cooldown_on_block_sec**: Delay when WAF blocks queries
+- **waf.company_interval_sec**: Delay between company queries
+- **waf.screenshot_interval_sec**: Minimum delay between screenshots
+- **waf.max_consecutive_fails**: Failure threshold before cooldown
+
+#### Subsite Configuration
+- **subsites.<name>.name**: Human-readable subsite identifier
+- **subsites.<name>.css_selector**: CSS selector for navigation
+- **subsites.<name>.extra_wait_sec**: Additional wait after navigation
+
+#### Output Configuration
+- **output.dir**: Main output directory path
+- **output.screenshots_dir**: Screenshot storage directory
+- **storage.screenshots**: Storage mode (file/blob/both)
+
+#### Feishu Integration
+- **feishu.app_token**: Environment variable for authentication token
+- **feishu.raw_table.id**: Primary table identifier
+- **feishu.raw_table.fields**: Field mapping dictionary
+- **feishu.detail_table.id**: Detail table identifier
+- **feishu.detail_table.fields**: Detail field mapping dictionary
+
+#### Company Management
+- **companies**: List of company names for batch processing
+- **companies.yaml**: Alternative YAML format for structured data
+- **companies.txt**: Plain text format with comment support
 
 **Section sources**
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
-- [README.md](file://README.md)
+- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
+- [config/zxgk.example.yaml:1-103](file://config/zxgk.example.yaml#L1-L103)
+- [config/companies.example.txt:1-7](file://config/companies.example.txt#L1-L7)

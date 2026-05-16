@@ -14,6 +14,14 @@
 - [config/companies.example.txt](file://config/companies.example.txt)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced SQLite writer documentation to reflect new screenshot storage modes (file, blob, both)
+- Updated SQLite writer architecture to include database migration support for backward compatibility
+- Added comprehensive coverage of the three screenshot storage strategies with performance implications
+- Updated practical examples to demonstrate all three storage modes
+- Enhanced troubleshooting section with storage mode-specific guidance
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -67,8 +75,8 @@ ZQ --> CTXT
 - [writers/excel.py:1-97](file://writers/excel.py#L1-L97)
 - [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
 - [writers/feishu_build.py:1-242](file://writers/feishu_build.py#L1-L242)
-- [zxgk_query.py:1-800](file://zxgk_query.py#L1-L800)
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
+- [zxgk_query.py:1-26](file://zxgk_query.py#L1-L26)
+- [cron_daily_query.sh:1-200](file://cron_daily_query.sh#L1-L200)
 - [config/zxgk.example.yaml:1-103](file://config/zxgk.example.yaml#L1-L103)
 - [config/companies.example.txt:1-7](file://config/companies.example.txt#L1-L7)
 
@@ -79,14 +87,14 @@ ZQ --> CTXT
 - [writers/excel.py:1-97](file://writers/excel.py#L1-L97)
 - [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
 - [writers/feishu_build.py:1-242](file://writers/feishu_build.py#L1-L242)
-- [zxgk_query.py:1-800](file://zxgk_query.py#L1-L800)
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
+- [zxgk_query.py:1-26](file://zxgk_query.py#L1-L26)
+- [cron_daily_query.sh:1-200](file://cron_daily_query.sh#L1-L200)
 - [config/zxgk.example.yaml:1-103](file://config/zxgk.example.yaml#L1-L103)
 - [config/companies.example.txt:1-7](file://config/companies.example.txt#L1-L7)
 
 ## Core Components
 - Writer interface contract: Each writer module exposes a write method that accepts a batch JSON path and returns None. Writers can be invoked as Python modules with command-line arguments.
-- SQLite writer: Persists normalized records to a local SQLite database with per-subsite tables and optional screenshot storage as file path or binary blob.
+- SQLite writer: Persists normalized records to a local SQLite database with per-subsite tables and flexible screenshot storage modes including file paths, binary blobs, and hybrid approaches with automatic database migration support.
 - Excel writer: Generates a multi-sheet XLSX report with standardized headers and formatting, suitable for manual review and sharing.
 - Feishu writer: Writes to Feishu Bitable raw tables, performs cross-reference updates to a main case table, and optionally uploads screenshots to the main case table.
 - Feishu build helper: Automatically creates the required tables and establishes links, then writes initial data and optional screenshots.
@@ -121,7 +129,7 @@ participant Excel as "writers.excel"
 participant FeBuild as "writers.feishu_build"
 Cron->>Zxgk : Run subsite queries (--batch, --subsite, --mode text-only)
 Zxgk-->>Cron : Write batch JSON to output directory
-Cron->>SQLite : python3 -m writers.sqlite --input batch.json [--db db_path]
+Cron->>SQLite : python3 -m writers.sqlite --input batch.json [--db db_path] [--store-screenshots mode]
 alt Feishu configured
 Cron->>Feishu : python3 -m writers.feishu --input batch.json --subsite zhixing/shixin/xgl [--cross-ref] [--screenshots dir]
 end
@@ -143,13 +151,15 @@ end
 ## Detailed Component Analysis
 
 ### SQLite Writer
+**Updated** Enhanced with three screenshot storage modes and database migration support
+
 Purpose:
 - Persist normalized records locally with minimal dependencies.
-- Support flexible screenshot storage modes: file path, binary blob, or both.
+- Support flexible screenshot storage modes: file path, binary blob, or both with automatic database migration.
 
 Key behaviors:
 - Schema design: per-subsite table with primary key, batch metadata, entity fields, and optional screenshot path/blob.
-- Migration: adds screenshot_data column if missing.
+- Database migration: automatically adds screenshot_data column to existing tables if missing.
 - Batch insertion: iterates over companies and records, inserting fields and optional screenshot binary.
 - Storage modes:
   - file: store only screenshot_path; fast and disk-friendly.
@@ -169,7 +179,7 @@ Error handling:
 flowchart TD
 Start(["write_batch(json_path, db_path, store_screenshots)"]) --> Load["Load JSON data"]
 Load --> BuildSchema["Ensure table exists (per subsite)"]
-BuildSchema --> Migrate["Add screenshot_data column if missing"]
+BuildSchema --> Migrate["Check and add screenshot_data column if missing"]
 Migrate --> Iterate["Iterate companies → records"]
 Iterate --> SSMode{"store_screenshots mode?"}
 SSMode --> |file| InsertFile["Insert with screenshot_path only"]
@@ -239,7 +249,7 @@ Purpose:
 Key behaviors:
 - Raw table write: deduplicates by (caseNo, viewId) within a recent window, batches inserts, and prints progress.
 - Cross-reference update: for specific subsites, updates main case table fields indicating status and dates.
-- Screenshot upload: scans a directory for images, maps by viewId, finds corresponding raw records, resolves main case record via duplex link, uploads media, and updates the main case record’s attachment field.
+- Screenshot upload: scans a directory for images, maps by viewId, finds corresponding raw records, resolves main case record via duplex link, uploads media, and updates the main case record's attachment field.
 
 Concurrency and I/O:
 - Uses lark-cli subprocess calls; introduces rate limits and sleeps between operations.
@@ -352,7 +362,7 @@ participant Excel as "writers.excel"
 User->>Cron : Execute daily workflow
 Cron->>Zxgk : Run queries (--batch, --subsite, --mode text-only)
 Zxgk-->>Cron : Produce batch JSON files
-Cron->>SQLite : Write to local DB
+Cron->>SQLite : Write to local DB with configurable screenshot storage
 alt Feishu configured
 Cron->>Feishu : Write to Bitable (raw + optional cross-ref + screenshots)
 end
@@ -409,6 +419,8 @@ EXCEL --> OPENPYXL["openpyxl (optional)"]
 - SQLite:
   - Use file mode for screenshots to minimize I/O overhead and memory usage.
   - Blob mode reduces filesystem clutter but increases memory and CPU usage during reads.
+  - Both mode provides redundancy but doubles storage requirements.
+  - Database migration adds minimal overhead during first run on existing tables.
   - Consider indexing on frequently queried columns if extending schema.
 - Excel:
   - Single-pass write with minimal formatting; performance dominated by file I/O.
@@ -421,12 +433,12 @@ EXCEL --> OPENPYXL["openpyxl (optional)"]
   - Writers are invoked as separate processes; no shared state between writers.
   - For high-throughput scenarios, consider parallelizing independent writer invocations at the orchestrator level.
 
-[No sources needed since this section provides general guidance]
-
 ## Troubleshooting Guide
 - SQLite:
   - Verify input JSON path exists.
   - If screenshot file cannot be read, the writer skips that record and continues.
+  - For database migration issues, ensure proper permissions on the database file.
+  - Storage mode selection affects performance: file mode is fastest, blob mode is slowest, both mode is moderate.
 - Excel:
   - Ensure openpyxl is installed; the script checks and exits with guidance if missing.
   - Output path defaults to derived from the first input file if not provided.
@@ -448,9 +460,7 @@ EXCEL --> OPENPYXL["openpyxl (optional)"]
 - [writers/feishu_build.py:220-237](file://writers/feishu_build.py#L220-L237)
 
 ## Conclusion
-The output generation system provides a clean, pluggable architecture for persisting and exporting query results. Each writer adheres to a simple interface and can be composed independently. SQLite offers a robust, zero-dependency local option; Excel provides a convenient human-readable report; Feishu enables centralized collaboration with automated synchronization and screenshot uploads. The system integrates seamlessly with the main query pipeline and can be extended by adding new writer modules that conform to the established interface.
-
-[No sources needed since this section summarizes without analyzing specific files]
+The output generation system provides a clean, pluggable architecture for persisting and exporting query results. Each writer adheres to a simple interface and can be composed independently. SQLite offers a robust, zero-dependency local option with flexible screenshot storage modes; Excel provides a convenient human-readable report; Feishu enables centralized collaboration with automated synchronization and screenshot uploads. The system integrates seamlessly with the main query pipeline and can be extended by adding new writer modules that conform to the established interface.
 
 ## Appendices
 
@@ -470,16 +480,17 @@ The output generation system provides a clean, pluggable architecture for persis
 
 ### Practical Examples
 - SQLite:
-  - Store screenshots as file paths: python3 -m writers.sqlite --input batch.json
-  - Store screenshots as blobs: python3 -m writers.sqlite --input batch.json --store-screenshots blob
+  - Store screenshots as file paths (default): `python3 -m writers.sqlite --input batch.json`
+  - Store screenshots as blobs: `python3 -m writers.sqlite --input batch.json --store-screenshots blob`
+  - Store screenshots as both path and blob: `python3 -m writers.sqlite --input batch.json --store-screenshots both`
 - Excel:
-  - Export to XLSX: python3 -m writers.excel --input batch.json
+  - Export to XLSX: `python3 -m writers.excel --input batch.json`
 - Feishu:
-  - Write raw table: python3 -m writers.feishu --input batch.json --subsite zhixing
-  - Cross-reference and update main table: python3 -m writers.feishu --input batch.json --subsite shixin --cross-ref
-  - Upload screenshots to main table: python3 -m writers.feishu --input batch.json --subsite zhixing --screenshots output/screenshots
+  - Write raw table: `python3 -m writers.feishu --input batch.json --subsite zhixing`
+  - Cross-reference and update main table: `python3 -m writers.feishu --input batch.json --subsite shixin --cross-ref`
+  - Upload screenshots to main table: `python3 -m writers.feishu --input batch.json --subsite zhixing --screenshots output/screenshots`
 - Feishu build:
-  - Auto-create tables and write data: python3 -m writers.feishu_build --input batch.json --app-token base_token [--screenshots dir]
+  - Auto-create tables and write data: `python3 -m writers.feishu_build --input batch.json --app-token base_token [--screenshots dir]`
 
 **Section sources**
 - [README.md:35-44](file://README.md#L35-L44)
@@ -487,7 +498,7 @@ The output generation system provides a clean, pluggable architecture for persis
 
 ### Batch Processing Workflows
 - The orchestrator runs three subsites sequentially, writing SQLite for local backup and Feishu when configured.
-- After Feishu synchronization, it waits briefly and then performs screenshot backfilling via the main pipeline’s ScreenshotBackfiller.
+- After Feishu synchronization, it waits briefly and then performs screenshot backfilling via the main pipeline's ScreenshotBackfiller.
 
 **Section sources**
 - [cron_daily_query.sh:112-154](file://cron_daily_query.sh#L112-L154)
@@ -495,7 +506,7 @@ The output generation system provides a clean, pluggable architecture for persis
 
 ### Data Serialization and File Generation
 - Batch JSON: produced by the main pipeline; contains normalized records grouped by company.
-- SQLite: per-subsite table with records and optional screenshot data.
+- SQLite: per-subsite table with records and optional screenshot data stored in selected mode.
 - Excel: XLSX workbook with one sheet per subsite; headers and formatting applied.
 - Feishu: raw table records written in batches; main case table updated via cross-reference; screenshots uploaded and attached.
 
@@ -510,9 +521,47 @@ The output generation system provides a clean, pluggable architecture for persis
 - FEISHU_APP_TOKEN: required for Feishu writers and build helper.
 - openpyxl: optional dependency for Excel writer.
 - lark-cli: required for Feishu writers and build helper.
+- Storage configuration: screenshots can be configured via config/zxgk.example.yaml under the storage section.
 
 **Section sources**
 - [README.md:29-34](file://README.md#L29-L34)
 - [writers/excel.py:17-22](file://writers/excel.py#L17-L22)
 - [writers/feishu.py:26](file://writers/feishu.py#L26)
 - [writers/feishu_build.py:20-25](file://writers/feishu_build.py#L20-L25)
+- [config/zxgk.example.yaml:27-29](file://config/zxgk.example.yaml#L27-L29)
+
+### SQLite Storage Modes Comparison
+**Updated** Comprehensive comparison of screenshot storage strategies
+
+The SQLite writer now supports three distinct storage modes, each with different performance and storage characteristics:
+
+- **File Mode (`--store-screenshots file`)**:
+  - Stores only the screenshot file path in the database
+  - Fastest write operation with minimal memory usage
+  - Disk space efficient, no duplication of image data
+  - Requires external file management and backup strategies
+  - Best for large-scale deployments with limited database storage
+
+- **Blob Mode (`--store-screenshots blob`)**:
+  - Reads screenshot files into memory and stores as BLOB
+  - Removes original files after successful database insertion
+  - Highest write performance with reduced filesystem clutter
+  - Most memory-intensive operation, especially for large images
+  - Database size grows significantly with image data
+  - Good balance between performance and storage efficiency
+
+- **Both Mode (`--store-screenshots both`)**:
+  - Stores both file path and binary data for redundancy
+  - Retains original files while duplicating data in database
+  - Maximum reliability with dual storage approach
+  - Highest storage requirements and moderate write performance
+  - Best for critical data where loss prevention is paramount
+
+**Migration Support**:
+The SQLite writer automatically handles database migration for existing tables by adding the `screenshot_data` column if it doesn't exist, ensuring backward compatibility with previous installations.
+
+**Section sources**
+- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
+- [writers/sqlite.py:54-58](file://writers/sqlite.py#L54-L58)
+- [README.md:39-40](file://README.md#L39-L40)
+- [config/zxgk.example.yaml:27-29](file://config/zxgk.example.yaml#L27-L29)

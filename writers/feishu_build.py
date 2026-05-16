@@ -29,7 +29,7 @@ def lark_api(method, path, data=None):
     """调用 lark-cli api"""
     cmd = ["lark-cli", "api", method, path, "--as", "user"]
     if data is not None:
-        cmd.append(json.dumps(data, ensure_ascii=False))
+        cmd += ["--data", json.dumps(data, ensure_ascii=False)]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
@@ -66,10 +66,12 @@ def create_table(app_token, name, fields):
         return None
 
 
-def add_field(app_token, table_id, field_name, field_type):
+def add_field(app_token, table_id, field_name, field_type, link_table_id=None):
     """给已有表添加字段"""
     path = f"/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/fields"
     body = {"field_name": field_name, "type": field_type}
+    if link_table_id:
+        body["property"] = {"link_table_id": link_table_id}
     resp = lark_api("POST", path, body)
     return resp and resp.get("code") == 0
 
@@ -88,22 +90,37 @@ def add_records(app_token, table_id, records):
 
 
 def upload_media(file_path, app_token):
-    """上传截图到飞书"""
-    path = "/open-apis/drive/v1/medias/upload_all"
-    cmd = [
-        "lark-cli", "api", "POST", path, "--as", "user",
-        "-F", f"file_name=@file:{file_path}",
-        "-F", f"parent_type=bitable_image",
-        "-F", f"parent_node={app_token}",
-    ]
+    """上传截图到飞书（通过 stdin 管道绕开 lark-cli --file 本机 bug）"""
+    file_size = os.path.getsize(file_path)
+    file_name = os.path.basename(file_path)
+    metadata = {
+        "file_name": file_name,
+        "parent_type": "bitable_image",
+        "parent_node": app_token,
+        "size": file_size,
+    }
+    upload_url = "/open-apis/drive/v1/medias/upload_all"
+    with open(file_path, "rb") as fh:
+        proc = subprocess.Popen(
+            ["lark-cli", "api", "POST", upload_url, "--as", "user",
+             "--data", json.dumps(metadata, ensure_ascii=False),
+             "--file", "-"],
+            stdin=fh,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode != 0:
-            return None
-        resp = json.loads(result.stdout) if result.stdout.strip() else {}
-        return resp.get("data", {}).get("file_token") if resp.get("code") == 0 else None
-    except Exception:
+        stdout, stderr = proc.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        print(f"  upload timeout: {file_name}", file=sys.stderr)
         return None
+    if proc.returncode != 0:
+        print(f"  upload error: {stderr.decode()[:300]}", file=sys.stderr)
+        return None
+    resp = json.loads(stdout)
+    return resp.get("data", {}).get("file_token") if resp.get("code") == 0 else None
 
 
 def build(app_token, batch_json_path, screenshots_dir=None):
@@ -158,8 +175,8 @@ def build(app_token, batch_json_path, screenshots_dir=None):
     # Step 3: 建立 DuplexLink（双向关联）
     # raw 表 → 案件主表
     print("  建立 DuplexLink ...")
-    add_field(app_token, raw_table_id, "案件主表", 17)  # 17 = LinkRecords
-    add_field(app_token, case_table_id, "raw_一级", 17)
+    add_field(app_token, raw_table_id, "案件主表", 18, case_table_id)
+    add_field(app_token, case_table_id, "raw_一级", 18, raw_table_id)
 
     # Step 4: 批量写入 raw 表
     total = 0

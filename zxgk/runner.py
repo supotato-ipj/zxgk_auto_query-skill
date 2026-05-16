@@ -70,9 +70,6 @@ class BatchRunner:
             logger.info("[%d/%d] %s", idx + 1, len(pending), company)
 
             try:
-                bm.page.evaluate("document.getElementById('pName').value = ''")
-                bm.page.fill("#pName", company)
-
                 # 每次查询前强制刷新验证码，避免跨公司复用的过期验证码
                 solver.refresh(bm.page)
                 logger.debug("已刷新验证码（避免跨公司复用导致 TTL 过期）")

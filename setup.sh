@@ -36,7 +36,7 @@ if [ ! -d venv ]; then
 fi
 source venv/bin/activate
 pip install -q -U pip
-pip install -q --default-timeout=120 playwright==1.58.0 playwright-stealth==2.0.3 PyYAML==6.0.3 requests==2.33.1 opencv-python-headless numpy
+pip install -q --default-timeout=120 -r requirements.txt
 echo "  ✅"
 
 # ── Step 2: Playwright Chromium ──

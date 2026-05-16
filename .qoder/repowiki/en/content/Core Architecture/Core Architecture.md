@@ -16,7 +16,26 @@
 - [writers/feishu.py](file://writers/feishu.py)
 - [writers/feishu_build.py](file://writers/feishu_build.py)
 - [captcha-solver/main.py](file://captcha-solver/main.py)
+- [zxgk/__init__.py](file://zxgk/__init__.py)
+- [zxgk/cli.py](file://zxgk/cli.py)
+- [zxgk/browser.py](file://zxgk/browser.py)
+- [zxgk/query.py](file://zxgk/query.py)
+- [zxgk/captcha.py](file://zxgk/captcha.py)
+- [zxgk/runner.py](file://zxgk/runner.py)
+- [zxgk/screenshot.py](file://zxgk/screenshot.py)
+- [zxgk/backfill.py](file://zxgk/backfill.py)
+- [zxgk/config.py](file://zxgk/config.py)
+- [zxgk/exceptions.py](file://zxgk/exceptions.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Completely restructured the architecture overview to reflect the new modular package-based system
+- Added detailed documentation for the 17-module package structure
+- Updated component interactions to show proper separation of concerns
+- Enhanced the modular architecture section with concrete module relationships
+- Revised the project structure diagram to reflect the new package organization
+- Added comprehensive documentation for the new zxgk package structure and its components
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -31,256 +50,464 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the Execution Information Query System’s core architecture, focusing on the browser automation pipeline, CAPTCHA solving subsystem, multi-subsite navigation patterns, and the extensible output writer ecosystem. It explains how CLI commands orchestrate Playwright-driven queries against the China Enforcement Information Public Network, how OCR-based CAPTCHA resolution is integrated, and how results are persisted locally and optionally synchronized to Feishu. It also documents system boundaries, integration patterns with external services, error handling strategies, and performance characteristics.
+This document describes the Execution Information Query System's core architecture, focusing on the browser automation pipeline, CAPTCHA solving subsystem, multi-subsite navigation patterns, and the extensible output writer ecosystem. The system has evolved from a single-file implementation to a comprehensive package-based system with proper separation of concerns across 17 modules, establishing a professional-grade framework for automated legal case data collection. It explains how CLI commands orchestrate Playwright-driven queries against the China Enforcement Information Public Network, how OCR-based CAPTCHA resolution is integrated, and how results are persisted locally and optionally synchronized to Feishu.
 
 ## Project Structure
-The system is organized into cohesive modules:
-- CLI and orchestration: main automation and scheduling
-- Browser automation: stealth Chromium via Playwright
-- CAPTCHA solver: OCR service for验证码 recognition
-- Writers: pluggable output backends (SQLite, Excel, Feishu)
-- Diagnostics and setup: environment validation and site probing
-- Configuration: YAML-driven runtime configuration
+The system is now organized into a comprehensive package-based architecture with 17 modules, each serving a specific functional responsibility:
+
+**Core Package Structure**
+- **zxgk/** - Main application package containing all core components
+  - CLI entry points and command parsing
+  - Browser automation management
+  - Query processing and data extraction
+  - CAPTCHA solving integration
+  - Batch processing and orchestration
+  - Screenshot capture and processing
+  - Phase B backfill functionality
+  - Configuration management and utilities
+  - Custom exception definitions
+- **writers/** - Pluggable output backend system
+- **captcha-solver/** - Standalone OCR service container
 
 ```mermaid
 graph TB
-subgraph "CLI and Orchestration"
-CLI["zxgk_query.py<br/>CLI + BatchRunner"]
+subgraph "Core Application Package (zxgk/)"
+ZINIT["__init__.py<br/>Package version control"]
+CLI["cli.py<br/>CLI entry point + argument parsing"]
+BROWSER["browser.py<br/>Playwright browser management"]
+QUERY["query.py<br/>Search + pagination + data extraction"]
+CAPTCHA["captcha.py<br/>OCR client integration"]
+RUNNER["runner.py<br/>Batch processing orchestration"]
+SCREENSHOT["screenshot.py<br/>Detail popup capture"]
+BACKFILL["backfill.py<br/>Phase B screenshot backfill"]
+CONFIG["config.py<br/>Configuration loading + utilities"]
+EXCEPTIONS["exceptions.py<br/>Custom exception types"]
+END subgraph
+subgraph "Output Writers (writers/)"
+SQLITE["sqlite.py<br/>Local SQLite persistence"]
+EXCEL["excel.py<br/>Excel export functionality"]
+FEISHU["feishu.py<br/>Feishu API integration"]
+FBUILD["feishu_build.py<br/>Table creation automation"]
+END subgraph
+subgraph "External Services"
+OCR["captcha-solver/main.py<br/>FastAPI OCR service"]
 CRON["cron_daily_query.sh<br/>Daily orchestrator"]
 SETUP["setup.sh<br/>Environment bootstrap"]
 SMOKE["smoke_test.sh<br/>Validation"]
-end
-subgraph "Browser Automation"
-BM["BrowserManager<br/>Playwright + stealth"]
-QE["QueryEngine<br/>Search + pagination"]
-DS["DetailScreenshot<br/>Popup extraction"]
-end
-subgraph "CAPTCHA Solver"
-CAPT["CaptchaSolver<br/>OCR client"]
-OCR["captcha-solver/main.py<br/>FastAPI OCR service"]
-end
-subgraph "Output Writers"
-SQLITE["writers/sqlite.py"]
-EXCEL["writers/excel.py"]
-FEISHU["writers/feishu.py"]
-FBUILD["writers/feishu_build.py"]
-end
-CFG["config/zxgk.example.yaml"]
-CLI --> BM
-CLI --> QE
-CLI --> DS
-CLI --> CAPT
+DIAG["diagnose_subsites.py<br/>Site diagnostics"]
+END subgraph
+ZINIT --> CLI
+CLI --> BROWSER
+CLI --> QUERY
+CLI --> CAPTCHA
+CLI --> RUNNER
+CLI --> SCREENSHOT
+CLI --> BACKFILL
+CLI --> CONFIG
+CLI --> EXCEPTIONS
 CLI --> SQLITE
 CLI --> EXCEL
 CLI --> FEISHU
+BROWSER --> CAPTCHA
+QUERY --> CAPTCHA
+RUNNER --> BROWSER
+RUNNER --> QUERY
+RUNNER --> SCREENSHOT
+BACKFILL --> BROWSER
+BACKFILL --> CAPTCHA
+BACKFILL --> SCREENSHOT
+FEISHU --> FBUILD
 CRON --> CLI
 CRON --> SQLITE
 CRON --> FEISHU
 CRON --> FBUILD
-SETUP --> CLI
-SETUP --> OCR
-SMOKE --> CLI
-SMOKE --> OCR
-BM --> CAPT
-CAPT --> OCR
-QE --> DS
-FEISHU --> FBUILD
-CLI -.-> CFG
-CRON -.-> CFG
+OCR --> CAPTCHA
 ```
 
 **Diagram sources**
-- [zxgk_query.py:175-324](file://zxgk_query.py#L175-L324)
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
-- [captcha-solver/main.py:107-142](file://captcha-solver/main.py#L107-L142)
-- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
-- [writers/excel.py:56-73](file://writers/excel.py#L56-L73)
-- [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
-- [writers/feishu_build.py:109-201](file://writers/feishu_build.py#L109-L201)
-- [cron_daily_query.sh:112-154](file://cron_daily_query.sh#L112-L154)
-- [config/zxgk.example.yaml:1-103](file://config/zxgk.example.yaml#L1-L103)
+- [zxgk/__init__.py:1-3](file://zxgk/__init__.py#L1-L3)
+- [zxgk/cli.py:1-321](file://zxgk/cli.py#L1-L321)
+- [zxgk/browser.py:1-190](file://zxgk/browser.py#L1-L190)
+- [zxgk/query.py:1-276](file://zxgk/query.py#L1-L276)
+- [zxgk/captcha.py:1-73](file://zxgk/captcha.py#L1-L73)
+- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
+- [zxgk/screenshot.py:1-116](file://zxgk/screenshot.py#L1-L116)
+- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
+- [zxgk/config.py:1-104](file://zxgk/config.py#L1-L104)
+- [zxgk/exceptions.py:1-14](file://zxgk/exceptions.py#L1-L14)
+- [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
 
 **Section sources**
 - [README.md:97-122](file://README.md#L97-L122)
 - [SKILL.md:225-247](file://SKILL.md#L225-L247)
+- [zxgk/__init__.py:1-3](file://zxgk/__init__.py#L1-L3)
 
 ## Core Components
-- CLI and Orchestration
-  - Command-line entry point with subcommands for single, batch, backfill, and diagnose modes.
-  - Daily orchestration script coordinates three subsites, writes to SQLite, conditionally to Feishu, and triggers Phase B screenshot backfill.
-- BrowserManager
-  - Launches a stealth Chromium session, navigates to subsites, and handles WAF detection and retries.
-- QueryEngine
-  - Performs search, handles CAPTCHA OCR, dismisses overlays, collects paginated results, and ensures viewId de-duplication.
-- CaptchaSolver
-  - Extracts CAPTCHA images from the page, posts to OCR service, and applies confidence thresholds.
-- DetailScreenshot
-  - Captures detail popups, crops to popup region using OpenCV heuristics, and closes dialogs.
-- Writers
-  - SQLite writer persists batch results locally with optional screenshot storage as file path or BLOB.
-  - Excel writer exports tabular results for reporting.
-  - Feishu writer writes raw tables, performs cross-reference updates, and uploads screenshots to Feishu.
-  - Feishu build writer automates table creation and initial data population.
+
+### CLI and Orchestration Layer
+The CLI system has been completely restructured into a modular package architecture:
+- **Command Entry Point**: `zxgk_query.py` serves as the main executable entry point
+- **Argument Parsing**: Comprehensive CLI argument handling with subcommands
+- **Mode Management**: Supports single, batch, backfill, and diagnose modes
+- **Configuration Integration**: Seamless integration with YAML configuration system
+
+### Browser Automation Framework
+The browser management system provides robust automation capabilities:
+- **Stealth Browser Initialization**: Playwright with comprehensive stealth configurations
+- **Multi-subsite Navigation**: Configurable navigation patterns for different court systems
+- **WAF Detection**: Advanced WAF blocking detection and recovery mechanisms
+- **Session Management**: Graceful browser lifecycle management with cleanup
+
+### Query Processing Engine
+The query system handles complex search operations:
+- **CAPTCHA Integration**: Seamless OCR integration with confidence-based filtering
+- **Result Extraction**: Sophisticated data extraction from dynamic web content
+- **Pagination Handling**: Intelligent pagination with de-duplication logic
+- **Error Recovery**: Robust retry mechanisms and failure handling
+
+### CAPTCHA Solving Infrastructure
+The OCR system provides reliable text recognition:
+- **Client Integration**: Direct integration with FastAPI-based OCR service
+- **Health Monitoring**: Automatic service availability checking
+- **Confidence Filtering**: Intelligent quality assessment and rejection
+- **Fallback Mechanisms**: Graceful handling of OCR failures
+
+### Batch Processing and Orchestration
+The batch system manages large-scale operations:
+- **Progress Tracking**: Comprehensive progress monitoring and checkpointing
+- **Failure Recovery**: Automatic recovery from browser crashes and WAF blocks
+- **Resource Management**: Efficient resource utilization with session limits
+- **Output Generation**: Structured batch JSON generation for downstream processing
+
+### Screenshot Capture and Processing
+Advanced screenshot functionality:
+- **Popup Detection**: Intelligent popup window detection using OpenCV
+- **Region Extraction**: Precise cropping of relevant content areas
+- **Quality Optimization**: High-quality image processing and storage
+- **Batch Processing**: Efficient handling of multiple screenshot operations
+
+### Phase B Backfill System
+The backfill system handles missing screenshot recovery:
+- **Missing Detection**: Automated identification of records needing screenshots
+- **Re-Query Logic**: Intelligent re-querying of specific records
+- **Upload Automation**: Streamlined screenshot upload and field updates
+- **Cross-Reference Integrity**: Maintains data integrity across all systems
+
+### Configuration and Utility Systems
+Comprehensive configuration management:
+- **YAML Loading**: Flexible configuration file loading with environment variable support
+- **Company List Management**: Support for both YAML and plain text company lists
+- **Date Parsing**: Robust date parsing for legal case timestamp handling
+- **Environment Cleanup**: Proxy and environment variable management
+
+### Exception Handling Framework
+Structured error handling:
+- **WAF Blocking Detection**: Specific handling for site protection mechanisms
+- **Service Unavailability**: Graceful handling of external service failures
+- **Navigation Errors**: Specific error types for site structure changes
+- **Application-Level Errors**: Comprehensive error categorization and reporting
 
 **Section sources**
-- [zxgk_query.py:1514-1567](file://zxgk_query.py#L1514-L1567)
-- [cron_daily_query.sh:112-154](file://cron_daily_query.sh#L112-L154)
-- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
-- [writers/excel.py:56-73](file://writers/excel.py#L56-L73)
-- [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
-- [writers/feishu_build.py:109-201](file://writers/feishu_build.py#L109-L201)
+- [zxgk_query.py:1-26](file://zxgk_query.py#L1-L26)
+- [zxgk/cli.py:1-321](file://zxgk/cli.py#L1-L321)
+- [zxgk/browser.py:1-190](file://zxgk/browser.py#L1-L190)
+- [zxgk/query.py:1-276](file://zxgk/query.py#L1-L276)
+- [zxgk/captcha.py:1-73](file://zxgk/captcha.py#L1-L73)
+- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
+- [zxgk/screenshot.py:1-116](file://zxgk/screenshot.py#L1-L116)
+- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
+- [zxgk/config.py:1-104](file://zxgk/config.py#L1-L104)
+- [zxgk/exceptions.py:1-14](file://zxgk/exceptions.py#L1-L14)
 
 ## Architecture Overview
-The system follows a staged pipeline:
-- Input: company list and configuration
-- Automation: stealth browser navigates subsites, submits queries, and collects results
-- OCR: CAPTCHA images are sent to OCR service for text extraction
-- Storage: results saved to SQLite; optional Feishu synchronization and screenshot uploads
-- Backfill: Phase B re-queries missing screenshots and uploads them to Feishu
+The system follows a staged pipeline with clear module boundaries and responsibilities:
+
+**Phase A: Text Query and Storage**
+- Input: Company list and configuration files
+- Processing: Modular CLI → Browser automation → Query execution → Result extraction
+- Storage: Batch JSON generation with embedded screenshot mappings
+- Persistence: SQLite backup with optional screenshot storage
+
+**Phase B: Screenshot Backfill**
+- Detection: Automated identification of missing screenshots in Feishu
+- Re-Query: Intelligent re-querying of specific records
+- Upload: Streamlined screenshot upload and field updates
+- Integration: Seamless integration with existing data flows
 
 ```mermaid
 sequenceDiagram
 participant User as "Operator"
-participant CLI as "CLI (zxgk_query.py)"
-participant Cron as "Scheduler (cron_daily_query.sh)"
-participant BM as "BrowserManager"
-participant QE as "QueryEngine"
-participant CAPT as "CaptchaSolver"
-participant OCR as "OCR Service (FastAPI)"
-participant DS as "DetailScreenshot"
-participant SQL as "SQLite Writer"
-participant FS as "Feishu Writer"
-User->>CLI : Run single/batch/backfill
-CLI->>BM : Launch stealth Chromium
-BM->>BM : Navigate to subsite
-BM->>QE : Prepare page for search
+participant CLI as "CLI (zxgk/cli.py)"
+participant Runner as "BatchRunner (zxgk/runner.py)"
+participant Browser as "BrowserManager (zxgk/browser.py)"
+participant Query as "QueryEngine (zxgk/query.py)"
+participant Captcha as "CaptchaSolver (zxgk/captcha.py)"
+participant OCR as "OCR Service (captcha-solver/main.py)"
+participant Screenshot as "DetailScreenshot (zxgk/screenshot.py)"
+participant Writers as "Output Writers"
+User->>CLI : Execute command (--single/--batch/--backfill)
+CLI->>Runner : Initialize batch processor
+Runner->>Browser : Launch stealth Chromium
+Browser->>Browser : Navigate to subsite
+Browser->>Query : Prepare page for search
 loop For each company
-QE->>CAPT : Refresh CAPTCHA
-CAPT->>OCR : POST /solve/base64
-OCR-->>CAPT : {text, confidence}
-CAPT-->>QE : OCR result
-QE->>QE : Submit search, dismiss overlays
-QE->>QE : Collect pages, de-duplicate viewIds
+Query->>Captcha : Get fresh CAPTCHA
+Captcha->>OCR : POST /solve/base64
+OCR-->>Captcha : {text, confidence}
+Captcha-->>Query : OCR result
+Query->>Query : Submit search, dismiss overlays
+Query->>Query : Collect pages, de-duplicate viewIds
 alt Screenshots enabled
-QE->>DS : Capture detail popups
-DS-->>QE : Screenshot map
+Query->>Screenshot : Capture detail popups
+Screenshot-->>Query : Screenshot map
 end
-QE-->>CLI : Records + screenshot map
-CLI->>SQL : Write batch to SQLite
+Query-->>Runner : Records + screenshot map
+Runner->>Writers : Write batch to SQLite
 opt Feishu enabled
-CLI->>FS : Write raw table + cross-ref + upload screenshots
+Runner->>Writers : Write raw table + cross-ref + upload screenshots
 end
 end
-Note over CLI,FS : Phase B backfill triggered by scheduler
+Note over Runner,Writers : Phase B backfill triggered by scheduler
 ```
 
 **Diagram sources**
-- [zxgk_query.py:1065-1197](file://zxgk_query.py#L1065-L1197)
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
-- [captcha-solver/main.py:174-209](file://captcha-solver/main.py#L174-L209)
-- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
-- [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
-- [cron_daily_query.sh:112-154](file://cron_daily_query.sh#L112-L154)
+- [zxgk/cli.py:281-321](file://zxgk/cli.py#L281-L321)
+- [zxgk/runner.py:45-145](file://zxgk/runner.py#L45-L145)
+- [zxgk/browser.py:117-143](file://zxgk/browser.py#L117-L143)
+- [zxgk/query.py:66-139](file://zxgk/query.py#L66-L139)
+- [zxgk/captcha.py:42-73](file://zxgk/captcha.py#L42-L73)
+- [zxgk/screenshot.py:75-116](file://zxgk/screenshot.py#L75-L116)
 
 ## Detailed Component Analysis
 
-### Browser Automation and Navigation
-- Stealth browser initialization
-  - Chromium launched with sandbox disabled and stealth overrides to mimic a real browser.
-  - Locale and headers configured for Chinese sites.
-- Multi-subsite navigation
-  - Uses CSS selectors defined per subsite to click into “zhixing”, “shixin”, and “xgl”.
-  - WAF detection checks for presence of CAPTCHA element and body length; on block, retries with cooldown.
-- Retry and resilience
-  - Navigation retried up to three times; browser closed and relaunched after consecutive failures.
+### Modular Package Architecture
+The system is built around a clean package structure that promotes maintainability and extensibility:
+
+**Package Organization Principles**
+- **Single Responsibility**: Each module has a focused purpose
+- **Clear Interfaces**: Well-defined public APIs between modules
+- **Configuration-Driven**: External configuration controls behavior
+- **Plugin Architecture**: Writers and other components are pluggable
+
+**Module Dependencies**
+- Core modules depend on shared configuration and utilities
+- CLI orchestrates all major components
+- Writers are independent and can be used standalone
+- External services are loosely coupled through well-defined interfaces
 
 ```mermaid
-flowchart TD
-Start(["Launch Browser"]) --> Nav["Navigate to subsite"]
-Nav --> WAF{"WAF check: #yzm present?"}
-WAF --> |No| Retry["Retry with cooldown"]
-Retry --> WAF
-WAF --> |Yes| Ready["Ready for search"]
-Ready --> End(["Proceed to search"])
+graph TB
+subgraph "Core Dependencies"
+CONFIG["zxgk/config.py<br/>Shared utilities & constants"]
+EXCEPT["zxgk/exceptions.py<br/>Error types"]
+END subgraph
+subgraph "Primary Modules"
+CLI["zxgk/cli.py<br/>Command orchestration"]
+BROWSER["zxgk/browser.py<br/>Browser management"]
+QUERY["zxgk/query.py<br/>Data extraction"]
+CAPTCHA["zxgk/captcha.py<br/>OCR integration"]
+RUNNER["zxgk/runner.py<br/>Batch processing"]
+SCREENSHOT["zxgk/screenshot.py<br/>Image processing"]
+BACKFILL["zxgk/backfill.py<br/>Phase B recovery"]
+END subgraph
+subgraph "Supporting Modules"
+INIT["zxgk/__init__.py<br/>Package metadata"]
+END subgraph
+CONFIG --> CLI
+CONFIG --> BROWSER
+CONFIG --> QUERY
+CONFIG --> CAPTCHA
+CONFIG --> RUNNER
+CONFIG --> SCREENSHOT
+CONFIG --> BACKFILL
+EXCEPT --> BROWSER
+EXCEPT --> QUERY
+EXCEPT --> BACKFILL
+CLI --> BROWSER
+CLI --> QUERY
+CLI --> CAPTCHA
+CLI --> RUNNER
+CLI --> SCREENSHOT
+CLI --> BACKFILL
+BROWSER --> CAPTCHA
+QUERY --> CAPTCHA
+RUNNER --> BROWSER
+RUNNER --> QUERY
+RUNNER --> SCREENSHOT
+BACKFILL --> BROWSER
+BACKFILL --> CAPTCHA
+BACKFILL --> SCREENSHOT
 ```
 
 **Diagram sources**
-- [zxgk_query.py:195-277](file://zxgk_query.py#L195-L277)
+- [zxgk/config.py:1-104](file://zxgk/config.py#L1-L104)
+- [zxgk/exceptions.py:1-14](file://zxgk/exceptions.py#L1-L14)
+- [zxgk/cli.py:1-321](file://zxgk/cli.py#L1-L321)
+- [zxgk/browser.py:1-190](file://zxgk/browser.py#L1-190)
+- [zxgk/query.py:1-276](file://zxgk/query.py#L1-L276)
+- [zxgk/captcha.py:1-73](file://zxgk/captcha.py#L1-L73)
+- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
+- [zxgk/screenshot.py:1-116](file://zxgk/screenshot.py#L1-L116)
+- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
+- [zxgk/__init__.py:1-3](file://zxgk/__init__.py#L1-L3)
+
+### Browser Automation and Navigation
+The browser management system provides enterprise-grade automation capabilities:
+
+**Stealth Configuration**
+- Comprehensive browser arguments for bypassing detection
+- Locale and header customization for Chinese sites
+- Signal handling for graceful shutdown
+- Process cleanup for orphaned browser instances
+
+**Navigation Intelligence**
+- Configurable CSS selectors for different subsites
+- Special handling for subsite-specific requirements
+- WAF detection with automatic retry logic
+- Timeout management and state verification
+
+**Session Resilience**
+- Automatic browser restart after failures
+- Progress checkpointing for long-running operations
+- Memory leak prevention through controlled lifecycle
+- Concurrent operation limits and pacing
+
+```mermaid
+flowchart TD
+Start(["Initialize BrowserManager"]) --> Clean["Clean proxy env vars"]
+Clean --> Launch["Launch Playwright + Chromium"]
+Launch --> Stealth["Apply stealth configurations"]
+Stealth --> Context["Create browser context"]
+Context --> Page["Create new page"]
+Page --> Navigate["Navigate to subsite"]
+Navigate --> WAF{"WAF Check: #yzm exists?"}
+WAF --> |Yes| Ready["Ready for queries"]
+WAF --> |No| Retry["Retry with cooldown"]
+Retry --> Navigate
+Ready --> End(["Browser ready"])
+```
+
+**Diagram sources**
+- [zxgk/browser.py:78-104](file://zxgk/browser.py#L78-L104)
+- [zxgk/browser.py:117-143](file://zxgk/browser.py#L117-L143)
+- [zxgk/browser.py:163-170](file://zxgk/browser.py#L163-L170)
 
 **Section sources**
-- [zxgk_query.py:175-277](file://zxgk_query.py#L175-L277)
-- [config/zxgk.example.yaml:32-44](file://config/zxgk.example.yaml#L32-L44)
+- [zxgk/browser.py:1-190](file://zxgk/browser.py#L1-L190)
+- [zxgk/config.py:24-31](file://zxgk/config.py#L24-L31)
 
 ### CAPTCHA Solving System
-- Client-side extraction
-  - Captcha image located within the CAPTCHA container and drawn to canvas for data URL conversion.
-- OCR service integration
-  - Requests sent to OCR endpoint with base64 payload and preprocessing mode.
-  - Health-checked before use; on failure, the pipeline aborts early.
-- Confidence gating
-  - Results below a threshold are rejected and the CAPTCHA is refreshed.
+The OCR integration provides robust text recognition capabilities:
+
+**Client-Side Processing**
+- Intelligent CAPTCHA image extraction from page elements
+- Canvas-based image processing for optimal quality
+- Base64 encoding for efficient transmission
+- Preprocessing configuration for different OCR models
+
+**Service Integration**
+- Health check endpoint verification
+- Configurable retry logic for transient failures
+- Confidence-based quality filtering
+- Error handling for service unavailability
+
+**Quality Assurance**
+- Threshold-based rejection of low-confidence results
+- Automatic CAPTCHA refresh on failures
+- Comprehensive logging of OCR operations
+- Graceful degradation when service is unavailable
 
 ```mermaid
 sequenceDiagram
-participant QE as "QueryEngine"
-participant CAPT as "CaptchaSolver"
+participant Query as "QueryEngine"
+participant Captcha as "CaptchaSolver"
 participant OCR as "OCR Service"
-QE->>CAPT : get_captcha(page)
-CAPT->>OCR : POST /solve/base64 {image, preprocess}
-OCR-->>CAPT : {text, confidence}
-CAPT-->>QE : (text, confidence)
-alt confidence < threshold
-CAPT->>CAPT : refresh(page)
+Query->>Captcha : get_captcha(page)
+Captcha->>Captcha : Extract from #yzm container
+Captcha->>Captcha : Convert to base64 canvas
+Captcha->>OCR : POST /solve/base64 {image, preprocess}
+OCR-->>Captcha : {text, confidence}
+Captcha->>Captcha : Validate confidence threshold
+alt confidence < 0.3
+Captcha->>Captcha : refresh(page)
+Captcha->>OCR : Retry request
 end
+Captcha-->>Query : (text, confidence)
 ```
 
 **Diagram sources**
-- [zxgk_query.py:339-392](file://zxgk_query.py#L339-L392)
-- [captcha-solver/main.py:174-209](file://captcha-solver/main.py#L174-L209)
+- [zxgk/query.py:81-97](file://zxgk/query.py#L81-L97)
+- [zxgk/captcha.py:20-73](file://zxgk/captcha.py#L20-L73)
 
 **Section sources**
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
-- [captcha-solver/main.py:107-142](file://captcha-solver/main.py#L107-L142)
+- [zxgk/captcha.py:1-73](file://zxgk/captcha.py#L1-L73)
+- [zxgk/query.py:1-276](file://zxgk/query.py#L1-L276)
 
 ### Multi-Subsite Navigation Patterns
-- Configuration-driven selectors
-  - Each subsite defines a CSS selector and optional extra wait seconds.
-- Special handling
-  - “shixin” requires explicit province selection to “all”.
-- Consistent result collection
-  - Pagination loop reads rows, extracts viewIds, and de-duplicates across pages.
+The system supports three distinct court subsystems with specialized handling:
+
+**Configuration-Driven Navigation**
+- Per-subsite CSS selectors for reliable element targeting
+- Specialized wait times for subsite-specific loading patterns
+- Consistent navigation interface across all subsites
+- Error handling for DOM structure changes
+
+**Subsite-Specific Features**
+- **zhixing**: Standard execution information queries
+- **shixin**: Additional province selection requirement
+- **xgl**: Extra column handling for consumption restrictions
+- Unified processing logic with subsite-specific adaptations
+
+**Robustness Mechanisms**
+- Automatic retry on navigation failures
+- WAF detection and recovery
+- Graceful degradation for missing elements
+- Comprehensive error reporting
 
 ```mermaid
 flowchart TD
-A["Load subsite config"] --> B["Click CSS selector"]
-B --> C["Wait for networkidle"]
-C --> D{"Subsite special?"}
-D --> |shixin| E["Set province=all"]
-D --> |other| F["Skip"]
-E --> G["Collect rows"]
-F --> G
-G --> H["De-duplicate by viewId"]
+Config["Load subsite config"] --> Click["Click CSS selector"]
+Click --> Wait["Wait for networkidle"]
+Wait --> Special{"Subsite special handling?"}
+Special --> |shixin| Province["Set province=all"]
+Special --> |xgl| ExtraCols["Handle extra columns"]
+Special --> |none| Standard["Standard processing"]
+Province --> Process["Process results"]
+ExtraCols --> Process
+Standard --> Process
+Process --> Dedupe["De-duplicate by viewId"]
 ```
 
 **Diagram sources**
-- [zxgk_query.py:416-476](file://zxgk_query.py#L416-L476)
+- [zxgk/browser.py:144-161](file://zxgk/browser.py#L144-L161)
+- [zxgk/query.py:72-78](file://zxgk/query.py#L72-L78)
 - [config/zxgk.example.yaml:32-44](file://config/zxgk.example.yaml#L32-L44)
 
 **Section sources**
-- [zxgk_query.py:416-476](file://zxgk_query.py#L416-L476)
+- [zxgk/browser.py:1-190](file://zxgk/browser.py#L1-L190)
+- [zxgk/query.py:1-276](file://zxgk/query.py#L1-L276)
 - [config/zxgk.example.yaml:32-44](file://config/zxgk.example.yaml#L32-L44)
 
 ### Output Writers and Extensibility
-- Plugin-style writers
-  - Each writer module exposes a write() function; writers are invoked independently.
-- SQLite writer
-  - Zero-dependency persistence; supports storing screenshot paths or BLOBs.
-- Excel writer
-  - Exports tabular results for reporting; requires optional dependency.
-- Feishu writer
-  - Writes raw tables, performs cross-reference updates, and uploads screenshots to Feishu.
-- Feishu build writer
-  - Automates table creation, DuplexLink setup, and initial data population.
+The writer system provides a flexible, plugin-style architecture:
+
+**Writer Interface Standardization**
+- Consistent `write()` method signature across all writers
+- Independent module execution capability
+- Configurable output formats and storage options
+- Error isolation between different output backends
+
+**Storage Backend Variants**
+- **SQLite Writer**: Zero-dependency local persistence with BLOB support
+- **Excel Writer**: Tabular export for reporting and analysis
+- **Feishu Writer**: Full API integration with cross-reference updates
+- **Feishu Build Writer**: Automated table creation and initial population
+
+**Integration Patterns**
+- Writers are imported dynamically based on configuration
+- Shared constants and utility functions across writers
+- Configurable field mappings for different target systems
+- Batch processing compatibility with all writers
 
 ```mermaid
 classDiagram
@@ -329,164 +556,331 @@ FeishuWriter <.. FeishuBuildWriter : "shared constants"
 - [writers/feishu_build.py:109-201](file://writers/feishu_build.py#L109-L201)
 
 ### Data Flow from Input to Output
-- Input: company list (YAML or plain text) and configuration (YAML).
-- Automation: CLI loads config, launches browser, navigates subsites, runs queries, captures screenshots.
-- Storage: batch JSON produced per company; merged batch JSON aggregated; SQLite backup; optional Feishu writes.
-- Backfill: Phase B scans Feishu for missing screenshots and re-queries details to upload.
+The system implements a comprehensive data flow pipeline with clear module boundaries:
+
+**Input Processing**
+- Company list loading from YAML or plain text formats
+- Configuration file processing with environment variable expansion
+- Parameter validation and mode selection
+- Batch ID generation and output directory preparation
+
+**Processing Pipeline**
+- CLI orchestration and mode dispatch
+- Browser session management and navigation
+- Query execution with CAPTCHA handling
+- Result extraction and screenshot capture
+- Batch JSON generation and validation
+
+**Output Generation**
+- Multiple output format support
+- Feishu API integration with cross-reference updates
+- SQLite database backup with screenshot storage
+- Progress tracking and error reporting
+
+**Backfill Operations**
+- Missing screenshot detection in Feishu
+- Intelligent re-querying of specific records
+- Automated screenshot upload and field updates
+- Data integrity maintenance across systems
 
 ```mermaid
 flowchart TD
-In["Companies.txt / YAML"] --> LoadCfg["Load config (YAML)"]
-LoadCfg --> RunCLI["Run CLI (single/batch)"]
-RunCLI --> BM["BrowserManager"]
-RunCLI --> QE["QueryEngine"]
-RunCLI --> DS["DetailScreenshot"]
-RunCLI --> CAPT["CaptchaSolver"]
-CAPT --> OCR["OCR Service"]
-QE --> OutJSON["Per-company JSON"]
-OutJSON --> Merge["Merge to batch JSON"]
-Merge --> SQLite["SQLite Writer"]
-Merge --> Feishu["Feishu Writer"]
-Feishu --> Backfill["Phase B: Screenshot Backfill"]
+Input["Company List + Config"] --> CLI["CLI Parser (zxgk/cli.py)"]
+CLI --> Runner["BatchRunner (zxgk/runner.py)"]
+Runner --> Browser["BrowserManager (zxgk/browser.py)"]
+Runner --> Query["QueryEngine (zxgk/query.py)"]
+Runner --> Screenshot["DetailScreenshot (zxgk/screenshot.py)"]
+Query --> Captcha["CaptchaSolver (zxgk/captcha.py)"]
+Captcha --> OCR["OCR Service (captcha-solver/main.py)"]
+Browser --> Query
+Query --> Results["Extracted Records"]
+Results --> JSON["Batch JSON Generation"]
+JSON --> SQLite["SQLite Writer"]
+JSON --> Feishu["Feishu Writer"]
+Feishu --> Backfill["Phase B Backfill"]
 Backfill --> Feishu
 ```
 
 **Diagram sources**
-- [zxgk_query.py:1484-1494](file://zxgk_query.py#L1484-L1494)
+- [zxgk/cli.py:281-321](file://zxgk/cli.py#L281-L321)
+- [zxgk/runner.py:45-145](file://zxgk/runner.py#L45-L145)
+- [zxgk/browser.py:117-143](file://zxgk/browser.py#L117-L143)
+- [zxgk/query.py:66-139](file://zxgk/query.py#L66-L139)
+- [zxgk/captcha.py:42-73](file://zxgk/captcha.py#L42-L73)
 - [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
 - [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
-- [cron_daily_query.sh:112-154](file://cron_daily_query.sh#L112-L154)
 
 **Section sources**
-- [zxgk_query.py:1484-1494](file://zxgk_query.py#L1484-L1494)
+- [zxgk/cli.py:1-321](file://zxgk/cli.py#L1-L321)
+- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
 - [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
 - [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
-- [cron_daily_query.sh:112-154](file://cron_daily_query.sh#L112-L154)
 
 ### Integration Patterns with External Services
-- OCR service
-  - RESTful endpoints: health check and solve endpoints; configurable base URL.
-- Feishu API
-  - Uses lark-cli to call Bitable APIs for record creation, updates, media uploads, and search.
-- Local storage
-  - SQLite database for reliable local persistence; optional screenshot BLOB storage.
+The system integrates with multiple external services through well-defined interfaces:
+
+**OCR Service Integration**
+- RESTful API communication with health checking
+- Configurable base URL and endpoint configuration
+- Retry logic for transient service failures
+- Quality filtering based on confidence scores
+
+**Feishu API Integration**
+- Comprehensive Bitable API coverage
+- DuplexLink field handling for cross-references
+- Media upload and file token management
+- Record search and update operations
+
+**Local Storage Integration**
+- SQLite database for reliable local persistence
+- Optional screenshot BLOB storage for complete backup
+- File-based storage for scalability considerations
+- Transactional integrity and concurrent access handling
+
+**Containerized Service Management**
+- Docker-based OCR service deployment
+- Environment variable configuration
+- Port management and conflict detection
+- Health monitoring and automatic restart
 
 ```mermaid
 graph LR
-CAPT["CaptchaSolver"] --> |POST /solve/base64| OCR["OCR Service"]
-FEISHU["Feishu Writer"] --> |API calls| LARK["lark-cli"]
-LARK --> BITABLE["Feishu Bitable"]
-CLI["CLI"] --> |Writes| SQLITE["SQLite DB"]
+CLI["CLI (zxgk/cli.py)"] --> Config["Config Loader (zxgk/config.py)"]
+CLI --> Runner["BatchRunner (zxgk/runner.py)"]
+Runner --> Browser["BrowserManager (zxgk/browser.py)"]
+Browser --> Captcha["CaptchaSolver (zxgk/captcha.py)"]
+Captcha --> OCR["OCR Service (captcha-solver/main.py)"]
+Runner --> Query["QueryEngine (zxgk/query.py)"]
+Query --> Screenshot["DetailScreenshot (zxgk/screenshot.py)"]
+Runner --> Writers["Output Writers"]
+Writers --> SQLite["SQLite Database"]
+Writers --> FeishuAPI["Feishu API"]
+FeishuAPI --> FeishuTables["Feishu Tables"]
 ```
 
 **Diagram sources**
-- [captcha-solver/main.py:107-142](file://captcha-solver/main.py#L107-L142)
+- [zxgk/cli.py:1-321](file://zxgk/cli.py#L1-L321)
+- [zxgk/config.py:49-70](file://zxgk/config.py#L49-L70)
+- [zxgk/captcha.py:13-18](file://zxgk/captcha.py#L13-L18)
 - [writers/feishu.py:56-66](file://writers/feishu.py#L56-L66)
 - [writers/feishu.py:82-126](file://writers/feishu.py#L82-L126)
 - [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
 
 **Section sources**
-- [captcha-solver/main.py:107-142](file://captcha-solver/main.py#L107-L142)
+- [zxgk/config.py:1-104](file://zxgk/config.py#L1-L104)
+- [zxgk/captcha.py:13-18](file://zxgk/captcha.py#L13-L18)
 - [writers/feishu.py:56-66](file://writers/feishu.py#L56-L66)
 - [writers/feishu.py:82-126](file://writers/feishu.py#L82-L126)
 - [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
 
 ## Dependency Analysis
-- Internal dependencies
-  - CLI depends on BrowserManager, QueryEngine, CaptchaSolver, and writers.
-  - BatchRunner composes these components and manages lifecycle and retry policies.
-- External dependencies
-  - Playwright and stealth libraries for browser automation.
-  - Requests for OCR service calls.
-  - Optional: openpyxl for Excel export; lark-cli for Feishu operations.
-- Configuration-driven coupling
-  - Subsite selectors, OCR server URL, and Feishu table IDs are configured externally.
+The modular architecture establishes clear dependency relationships that promote maintainability and testability:
+
+**Internal Module Dependencies**
+- **CLI Layer**: Depends on all core modules for full functionality
+- **Core Modules**: Share common configuration and exception infrastructure
+- **Batch System**: Orchestrates browser, query, and screenshot modules
+- **Writer System**: Independent modules with shared interface contracts
+
+**External Dependencies**
+- **Playwright**: Core browser automation framework
+- **Requests**: HTTP client for OCR service communication
+- **OpenCV**: Image processing for screenshot extraction
+- **PyYAML**: Configuration file parsing
+- **ZoneInfo**: Timezone handling for date parsing
+
+**Configuration-Driven Coupling**
+- Subsite selectors and navigation parameters
+- OCR service endpoint configuration
+- Feishu table IDs and field mappings
+- Output directory and file naming conventions
 
 ```mermaid
 graph TB
-CLI["zxgk_query.py"] --> BM["BrowserManager"]
-CLI --> QE["QueryEngine"]
-CLI --> CAPT["CaptchaSolver"]
-CLI --> WR["Writers"]
-WR --> SQLITE["SQLite"]
-WR --> EXCEL["Excel"]
-WR --> FEISHU["Feishu"]
-CAPT --> OCR["OCR Service"]
-FEISHU --> LARK["lark-cli"]
+subgraph "External Dependencies"
+PLAYWRIGHT["Playwright"]
+REQUESTS["Requests"]
+OPENCV["OpenCV"]
+PYAML["PyYAML"]
+ZONEINFO["ZoneInfo"]
+LARKCLI["lark-cli"]
+END subgraph
+subgraph "Internal Dependencies"
+CLI["zxgk/cli.py"] --> BROWSER["zxgk/browser.py"]
+CLI --> QUERY["zxgk/query.py"]
+CLI --> CAPTCHA["zxgk/captcha.py"]
+CLI --> RUNNER["zxgk/runner.py"]
+CLI --> SCREENSHOT["zxgk/screenshot.py"]
+CLI --> BACKFILL["zxgk/backfill.py"]
+BROWSER --> PLAYWRIGHT
+QUERY --> REQUESTS
+CAPTCHA --> REQUESTS
+RUNNER --> BROWSER
+RUNNER --> QUERY
+RUNNER --> SCREENSHOT
+SCREENSHOT --> OPENCV
+CONFIG["zxgk/config.py"] --> PYAML
+CONFIG --> ZONEINFO
+BACKFILL --> LARKCLI
+END subgraph
 ```
 
 **Diagram sources**
-- [zxgk_query.py:1065-1197](file://zxgk_query.py#L1065-L1197)
-- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
-- [writers/excel.py:56-73](file://writers/excel.py#L56-L73)
-- [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
-- [captcha-solver/main.py:107-142](file://captcha-solver/main.py#L107-L142)
+- [zxgk/cli.py:11-17](file://zxgk/cli.py#L11-L17)
+- [zxgk/browser.py:8-12](file://zxgk/browser.py#L8-L12)
+- [zxgk/query.py:4](file://zxgk/query.py#L4)
+- [zxgk/captcha.py:4](file://zxgk/captcha.py#L4)
+- [zxgk/runner.py:8-12](file://zxgk/runner.py#L8-L12)
+- [zxgk/screenshot.py:5-8](file://zxgk/screenshot.py#L5-L8)
+- [zxgk/config.py:9,6](file://zxgk/config.py#L9,L6)
 
 **Section sources**
-- [zxgk_query.py:1065-1197](file://zxgk_query.py#L1065-L1197)
-- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
-- [writers/excel.py:56-73](file://writers/excel.py#L56-L73)
-- [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
-- [captcha-solver/main.py:107-142](file://captcha-solver/main.py#L107-L142)
+- [zxgk/cli.py:11-17](file://zxgk/cli.py#L11-L17)
+- [zxgk/browser.py:8-12](file://zxgk/browser.py#L8-L12)
+- [zxgk/query.py:4](file://zxgk/query.py#L4)
+- [zxgk/captcha.py:4](file://zxgk/captcha.py#L4)
+- [zxgk/runner.py:8-12](file://zxgk/runner.py#L8-L12)
+- [zxgk/screenshot.py:5-8](file://zxgk/screenshot.py#L5-L8)
+- [zxgk/config.py:9,6](file://zxgk/config.py#L9,L6)
 
 ## Performance Considerations
-- Browser reuse and session limits
-  - BatchRunner maintains a single browser session per run; restarts after consecutive failures to mitigate memory leaks and WAF drift.
-- OCR throughput and reliability
-  - OCR requests are retried once on transient failure; confidence thresholds reduce retries on low-quality OCR.
-- I/O optimization
-  - SQLite supports BLOB storage for screenshots to avoid filesystem churn; Excel export is optimized for minimal formatting overhead.
-- Concurrency and pacing
-  - Configurable intervals between companies and screenshots reduce WAF pressure and improve stability.
+The modular architecture incorporates several performance optimization strategies:
 
-[No sources needed since this section provides general guidance]
+**Browser Session Management**
+- Single browser session reuse for batch operations
+- Automatic restart after consecutive failures to prevent memory leaks
+- Configurable session limits and resource constraints
+- Graceful cleanup of browser processes and orphaned instances
+
+**OCR Service Optimization**
+- Health check caching to reduce unnecessary service calls
+- Retry logic with exponential backoff for transient failures
+- Confidence-based filtering to minimize OCR failures
+- Batch processing capabilities for multiple requests
+
+**I/O and Storage Optimization**
+- SQLite BLOB storage option to avoid filesystem fragmentation
+- Configurable screenshot storage modes (file, blob, both)
+- Efficient JSON serialization and compression
+- Parallel processing capabilities where appropriate
+
+**Network and Resource Management**
+- Configurable intervals between operations to avoid WAF detection
+- Connection pooling and reuse for external service calls
+- Memory management and garbage collection optimization
+- Throttling mechanisms for rate-limited services
 
 ## Troubleshooting Guide
-- WAF封禁 (WAF blocked)
-  - Detected when CAPTCHA element is absent; the system waits and retries. Exit code indicates封禁.
-- OCR service unavailable
-  - Health check fails or OCR returns empty text/confidence; verify OCR service is running and reachable.
-- Feishu authentication issues
-  - lark-cli not authenticated; re-run authentication and retry Feishu writes.
-- Session cleanup
-  - Leftover Chromium processes are cleaned up by both Python and shell scripts; manual cleanup available if needed.
-- Diagnostics
-  - Use diagnose mode to probe subsite readiness and WAF status.
+The modular architecture provides comprehensive error handling and diagnostic capabilities:
+
+**WAF Block Detection and Recovery**
+- Automatic detection of CAPTCHA-less pages indicating blockage
+- Configurable retry logic with progressive backoff
+- Session restart capability after repeated failures
+- Detailed logging of block events and recovery attempts
+
+**OCR Service Availability**
+- Health check endpoint verification before processing
+- Graceful degradation when OCR service is unavailable
+- Alternative processing modes for partial functionality
+- Comprehensive error reporting and recovery options
+
+**Feishu Integration Issues**
+- Authentication state verification and re-authentication
+- Field mapping validation and error reporting
+- Batch operation rollback capabilities
+- Manual intervention points for complex scenarios
+
+**Session and Process Management**
+- Automatic cleanup of orphaned browser processes
+- Signal handling for graceful shutdown during operations
+- Memory leak prevention through controlled lifecycle management
+- Progress checkpointing for recovery after interruptions
+
+**Diagnostic Tools and Utilities**
+- Built-in site readiness testing and WAF status checking
+- Configuration validation and parameter verification
+- Environment variable and dependency checking
+- Comprehensive logging with debug-level verbosity
 
 **Section sources**
-- [zxgk_query.py:99-107](file://zxgk_query.py#L99-L107)
-- [cron_daily_query.sh:48-96](file://cron_daily_query.sh#L48-L96)
+- [zxgk/browser.py:163-170](file://zxgk/browser.py#L163-L170)
+- [zxgk/captcha.py:13-18](file://zxgk/captcha.py#L13-L18)
 - [writers/feishu.py:56-66](file://writers/feishu.py#L56-L66)
 - [diagnose_subsites.py:103-330](file://diagnose_subsites.py#L103-L330)
 
 ## Conclusion
-The Execution Information Query System is a modular, resilient pipeline that combines stealth browser automation, OCR-based CAPTCHA solving, and extensible output writers. Its staged design—Phase A for text results and local backups, Phase B for screenshot backfill—ensures completeness and auditability. The configuration-driven architecture and plugin-style writers enable easy adaptation to evolving site structures and storage needs.
+The Execution Information Query System has successfully evolved from a monolithic implementation to a sophisticated, modular package-based architecture. The new 17-module system provides clear separation of concerns, robust error handling, and extensive extensibility through the plugin-style writer system. The staged processing approach—Phase A for comprehensive text and screenshot collection, followed by Phase B for missing screenshot recovery—ensures complete data coverage and auditability.
 
-[No sources needed since this section summarizes without analyzing specific files]
+The modular design enables independent development, testing, and maintenance of each component while maintaining seamless integration through well-defined interfaces. The configuration-driven approach allows for easy adaptation to changing site structures and external service requirements. This professional-grade framework establishes a solid foundation for automated legal case data collection with enterprise-level reliability and maintainability.
 
 ## Appendices
 
 ### Configuration Reference
-- Core keys
-  - captcha_server: OCR service base URL
-  - browser: headless, viewport
-  - waf: captcha_max_retries, cooldown_on_block_sec, company_interval_sec, screenshot_interval_sec, max_consecutive_fails
-  - screenshots.enabled
-  - storage.screenshots: file | blob | both
-  - subsites: zhixing, shixin, xgl with css_selector and extra_wait_sec
-  - feishu: app_token, raw_table.id/fields, detail_table.id/fields, dedup_options
-  - output.dir, output.screenshots_dir
-  - companies: list of company names
+The system uses a comprehensive YAML-based configuration system:
+
+**Core Configuration Keys**
+- `captcha_server`: OCR service base URL with health check endpoint
+- `browser`: Headless mode, viewport dimensions, and launch arguments
+- `waf`: Comprehensive WAF handling parameters including retry counts and timing
+- `screenshots`: Enable/disable and storage mode configuration
+- `storage`: Screenshot storage preferences (file, blob, both)
+- `subsites`: Three court subsystem configurations with CSS selectors
+- `feishu`: Complete table and field mapping configuration
+- `output`: Directory paths for results and screenshots
+- `companies`: Company list for batch processing
+
+**Configuration Loading and Resolution**
+- Environment variable expansion for sensitive values
+- Hierarchical configuration merging
+- Default value provision for optional settings
+- Type validation and parameter normalization
 
 **Section sources**
 - [config/zxgk.example.yaml:1-103](file://config/zxgk.example.yaml#L1-L103)
+- [zxgk/config.py:49-70](file://zxgk/config.py#L49-L70)
 
-### Exit Codes
-- 0: Success
-- 1: No results
-- 2: WAF blocked
-- 3: OCR service unavailable
-- 4: Configuration/parameter error
+### Exit Codes and Error States
+The system provides comprehensive exit code reporting:
+
+**Standard Exit Codes**
+- `0`: Successful completion with results found
+- `1`: No results found for requested queries
+- `2`: WAF blocking detected requiring cooldown
+- `3`: OCR service unavailable or unreachable
+- `4`: Configuration or parameter validation failure
+
+**Error State Classification**
+- **Operational Errors**: Temporary failures with recovery options
+- **Configuration Errors**: Invalid parameters or missing dependencies
+- **Service Errors**: External service unavailability or errors
+- **System Errors**: Resource constraints or environment issues
 
 **Section sources**
 - [README.md:89-96](file://README.md#L89-L96)
+- [zxgk/cli.py:314-321](file://zxgk/cli.py#L314-L321)
+
+### Module Development Guidelines
+For extending the system with new modules:
+
+**Interface Requirements**
+- Clear function signatures and return value specifications
+- Comprehensive error handling and logging
+- Configuration parameter validation
+- Unit test coverage for critical functionality
+
+**Integration Patterns**
+- Follow established import and dependency patterns
+- Implement proper exception handling and propagation
+- Provide configuration hooks for external parameters
+- Document public APIs and usage examples
+
+**Testing and Validation**
+- Unit tests for individual module functionality
+- Integration tests for module interactions
+- Performance benchmarks for critical paths
+- Security considerations for external service calls
+
+**Section sources**
+- [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
+- [zxgk/config.py:14-19](file://zxgk/config.py#L14-L19)

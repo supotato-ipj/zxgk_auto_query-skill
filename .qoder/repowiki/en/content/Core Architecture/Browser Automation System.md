@@ -8,13 +8,29 @@
 - [diagnose_subsites.py](file://diagnose_subsites.py)
 - [cron_daily_query.sh](file://cron_daily_query.sh)
 - [setup.sh](file://setup.sh)
-- [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
+- [config/zxgk.yaml](file://config/zxgk.yaml)
 - [config/companies.example.txt](file://config/companies.example.txt)
 - [captcha-solver/main.py](file://captcha-solver/main.py)
 - [writers/__init__.py](file://writers/__init__.py)
 - [writers/sqlite.py](file://writers/sqlite.py)
 - [writers/feishu.py](file://writers/feishu.py)
+- [zxgk/browser.py](file://zxgk/browser.py)
+- [zxgk/config.py](file://zxgk/config.py)
+- [zxgk/exceptions.py](file://zxgk/exceptions.py)
+- [zxgk/query.py](file://zxgk/query.py)
+- [zxgk/cli.py](file://zxgk/cli.py)
+- [zxgk/runner.py](file://zxgk/runner.py)
+- [zxgk/captcha.py](file://zxgk/captcha.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated BrowserManager class documentation to reflect the new modular implementation in `zxgk/browser.py`
+- Added detailed coverage of the new stealth configuration with playwright-stealth
+- Enhanced WAF detection and bypass mechanisms documentation
+- Updated architecture diagrams to show the modular component structure
+- Added comprehensive examples of the new browser management system
+- Updated configuration and dependency analysis to reflect the new modular design
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -29,130 +45,139 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the browser automation system that powers the Execution Information Query System. It focuses on the BrowserManager class architecture, stealth configuration with playwright-stealth, process cleanup mechanisms, and multi-subsite navigation patterns. It also documents the stealth browser setup with custom headers, viewport configuration, and automation detection evasion techniques; WAF detection and bypass mechanisms including CSS selector-based navigation, DOM element validation, and automatic retry logic; browser lifecycle management, orphan process cleanup, and signal handling for graceful shutdown; practical examples of browser initialization, navigation sequences, and error recovery strategies; and performance considerations, memory management, and resource cleanup patterns.
+This document describes the browser automation system that powers the Execution Information Query System. The system has been redesigned with a modular architecture featuring the BrowserManager class that manages Playwright Chromium lifecycle with advanced stealth configuration, robust WAF detection and bypass mechanisms, and graceful cleanup procedures. The new implementation provides enhanced anti-detection capabilities, improved multi-subsite navigation patterns, and comprehensive error handling.
 
 ## Project Structure
-The project is organized around a CLI that orchestrates browser automation, OCR-based CAPTCHA solving, and optional storage backends. The browser automation core resides in the main CLI module, with supporting scripts for diagnostics, orchestration, and storage.
+The project is now organized into modular components with clear separation of concerns. The browser automation core has been extracted into a dedicated `BrowserManager` class, while other components handle specific responsibilities like query processing, CAPTCHA solving, and batch operations.
 
 ```mermaid
 graph TB
-subgraph "CLI and Orchestration"
-Z["zxgk_query.py"]
-D["diagnose_subsites.py"]
-C["cron_daily_query.sh"]
-S["setup.sh"]
+subgraph "Core Modules"
+BM["BrowserManager<br/>zxgk/browser.py"]
+QE["QueryEngine<br/>zxgk/query.py"]
+CS["CaptchaSolver<br/>zxgk/captcha.py"]
+BR["BatchRunner<br/>zxgk/runner.py"]
+CLI["CLI Interface<br/>zxgk/cli.py"]
+end
+subgraph "Support Modules"
+CFG["Config & Utils<br/>zxgk/config.py"]
+EXC["Exceptions<br/>zxgk/exceptions.py"]
+DIAG["Diagnosis Tools<br/>diagnose_subsites.py"]
+end
+subgraph "External Services"
+OCR["captcha-solver/main.py"]
+FS["writers/feishu.py"]
+SQL["writers/sqlite.py"]
 end
 subgraph "Configuration"
-Y["config/zxgk.example.yaml"]
-T["config/companies.example.txt"]
-end
-subgraph "Storage Backends"
-W1["writers/sqlite.py"]
-W2["writers/feishu.py"]
-WI["writers/__init__.py"]
-end
-subgraph "OCR Service"
-O["captcha-solver/main.py"]
-end
-Z --> O
-Z --> Y
-Z --> WI
-WI --> W1
-WI --> W2
-C --> Z
-D --> Y
-S --> O
+YAML["config/zxgk.yaml"]
+END
+BM --> CFG
+BM --> EXC
+QE --> CS
+QE --> CFG
+BR --> BM
+BR --> QE
+CLI --> BM
+CLI --> QE
+CLI --> BR
+CLI --> CS
+CLI --> CFG
+DIAG --> BM
+DIAG --> CFG
 ```
 
 **Diagram sources**
-- [zxgk_query.py:1-1612](file://zxgk_query.py#L1-L1612)
-- [diagnose_subsites.py:1-429](file://diagnose_subsites.py#L1-L429)
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
-- [setup.sh:1-150](file://setup.sh#L1-L150)
-- [config/zxgk.example.yaml:1-103](file://config/zxgk.example.yaml#L1-L103)
-- [config/companies.example.txt:1-7](file://config/companies.example.txt#L1-L7)
-- [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
-- [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
-- [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
-- [captcha-solver/main.py:1-215](file://captcha-solver/main.py#L1-L215)
+- [zxgk/browser.py:58-190](file://zxgk/browser.py#L58-L190)
+- [zxgk/query.py:53-276](file://zxgk/query.py#L53-L276)
+- [zxgk/captcha.py:9-73](file://zxgk/captcha.py#L9-L73)
+- [zxgk/runner.py:15-278](file://zxgk/runner.py#L15-L278)
+- [zxgk/cli.py:11-321](file://zxgk/cli.py#L11-L321)
+- [zxgk/config.py:1-104](file://zxgk/config.py#L1-L104)
+- [zxgk/exceptions.py:1-14](file://zxgk/exceptions.py#L1-L14)
+- [diagnose_subsites.py:17-200](file://diagnose_subsites.py#L17-L200)
+- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
 
 **Section sources**
 - [README.md:1-122](file://README.md#L1-L122)
 - [SKILL.md:1-273](file://SKILL.md#L1-L273)
 
 ## Core Components
-- BrowserManager: Manages Playwright Chromium lifecycle, applies stealth, navigates multi-subsite targets, validates WAF state, and performs cleanup.
-- CaptchaSolver: Integrates with a local OCR service to extract and solve CAPTCHA images.
-- QueryEngine: Orchestrates search submission, result collection, pagination, and dialog dismissal.
-- DetailScreenshot: Captures detail popups and crops to popup region using OpenCV.
-- ScreenshotBackfiller: Phase B backfill of missing screenshots by searching, validating, and uploading per case.
-- BatchRunner: Coordinates batch queries with WAF-aware retries, intervals, and progress persistence.
-- Writers: Pluggable storage backends (SQLite, Excel, Feishu).
+- **BrowserManager**: Centralized browser lifecycle management with stealth configuration, multi-subsite navigation, WAF detection, and graceful cleanup.
+- **QueryEngine**: Handles search submission, result collection, pagination, and dialog dismissal with robust error handling.
+- **CaptchaSolver**: Integrates with local OCR service for CAPTCHA recognition with health checks and retry logic.
+- **BatchRunner**: Coordinates batch operations with WAF-aware retries, intervals, and progress persistence.
+- **CLI Interface**: Command-line interface that orchestrates the entire workflow with multiple execution modes.
+- **Configuration System**: Centralized configuration loading with environment variable support and validation.
 
 **Section sources**
-- [zxgk_query.py:175-324](file://zxgk_query.py#L175-L324)
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
-- [zxgk_query.py:396-618](file://zxgk_query.py#L396-L618)
-- [zxgk_query.py:682-725](file://zxgk_query.py#L682-L725)
-- [zxgk_query.py:776-1059](file://zxgk_query.py#L776-L1059)
-- [zxgk_query.py:1065-1197](file://zxgk_query.py#L1065-L1197)
-- [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
-- [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
-- [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
+- [zxgk/browser.py:58-190](file://zxgk/browser.py#L58-L190)
+- [zxgk/query.py:53-276](file://zxgk/query.py#L53-L276)
+- [zxgk/captcha.py:9-73](file://zxgk/captcha.py#L9-L73)
+- [zxgk/runner.py:15-278](file://zxgk/runner.py#L15-L278)
+- [zxgk/cli.py:11-321](file://zxgk/cli.py#L11-L321)
+- [zxgk/config.py:49-104](file://zxgk/config.py#L49-L104)
 
 ## Architecture Overview
-The system uses Playwright with playwright-stealth to emulate a real browser. It navigates the main site, clicks into subsites, solves CAPTCHAs via a local OCR service, submits queries, collects results, and optionally uploads screenshots to a backend.
+The system uses a modular Playwright-based architecture with specialized components for each responsibility. The BrowserManager serves as the central orchestrator, managing browser lifecycle and stealth configuration while other components handle specific tasks.
 
 ```mermaid
 graph TB
-BM["BrowserManager<br/>launch/close/navigate"] --> PW["Playwright<br/>Chromium"]
-PW --> CTX["Browser Context<br/>viewport, headers"]
-CTX --> PG["Page"]
-PG --> ST["playwright-stealth<br/>navigator overrides"]
-PG --> NAV["CSS Selector Navigation<br/>Subsite Links"]
-PG --> WAF["WAF Detection<br/>#yzm + body length"]
-PG --> CAP["CaptchaSolver<br/>OCR Integration"]
-CAP --> OCR["captcha-solver/main.py"]
-PG --> QE["QueryEngine<br/>search/collect/paginate"]
-QE --> DS["DetailScreenshot<br/>OpenCV crop"]
-DS --> FB["ScreenshotBackfiller<br/>Phase B"]
-BM --> BR["BatchRunner<br/>retry/intervals"]
-BR --> OUT["Writers<br/>SQLite/Feishu"]
+BM["BrowserManager<br/>Browser Lifecycle<br/>Stealth Config<br/>WAF Detection"] --> PW["Playwright<br/>Chromium Engine"]
+PW --> CTX["Browser Context<br/>Viewport & Headers"]
+CTX --> PAGE["Page Object<br/>DOM Interaction"]
+PAGE --> STEALTH["playwright-stealth<br/>Navigator Overrides"]
+PAGE --> NAV["CSS Selector Navigation<br/>Multi-Subsite Support"]
+PAGE --> WAF["WAF Detection<br/>#yzm + Body Length Check"]
+BM --> QE["QueryEngine<br/>Search Processing<br/>Result Collection"]
+QE --> CAP["CaptchaSolver<br/>OCR Integration<br/>Health Checks"]
+BM --> BR["BatchRunner<br/>Batch Operations<br/>Progress Tracking"]
+BR --> CLI["CLI Interface<br/>Command Processing<br/>Mode Selection"]
+CLI --> OUT["Output Writers<br/>Feishu/SQLite Export"]
 ```
 
 **Diagram sources**
-- [zxgk_query.py:175-324](file://zxgk_query.py#L175-L324)
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
-- [zxgk_query.py:396-618](file://zxgk_query.py#L396-L618)
-- [zxgk_query.py:682-725](file://zxgk_query.py#L682-L725)
-- [zxgk_query.py:776-1059](file://zxgk_query.py#L776-L1059)
-- [zxgk_query.py:1065-1197](file://zxgk_query.py#L1065-L1197)
-- [captcha-solver/main.py:1-215](file://captcha-solver/main.py#L1-L215)
+- [zxgk/browser.py:78-190](file://zxgk/browser.py#L78-L190)
+- [zxgk/query.py:66-276](file://zxgk/query.py#L66-L276)
+- [zxgk/captcha.py:13-73](file://zxgk/captcha.py#L13-L73)
+- [zxgk/runner.py:45-145](file://zxgk/runner.py#L45-L145)
+- [zxgk/cli.py:86-220](file://zxgk/cli.py#L86-L220)
 
 ## Detailed Component Analysis
 
-### BrowserManager: Stealth, Navigation, and Cleanup
-- Launch and context creation:
-  - Initializes Playwright, launches Chromium with sandbox and automation flags disabled, sets viewport, locale, and Accept-Language headers.
-  - Creates a new browser context and page.
-- Stealth configuration:
-  - Applies playwright-stealth with platform, languages, vendor, and WebGL overrides to reduce fingerprint detectability.
-- Multi-subsite navigation:
-  - Navigates to the main site, waits, clicks the target subsite via a CSS selector resolved from configuration, waits for network idle, and applies extra wait if configured.
-- WAF detection and retry:
-  - Validates presence of the CAPTCHA container element and body length; raises a WAF error if absent; retries up to a fixed number of attempts with delays.
-- Orphan process cleanup:
-  - Scans for and terminates lingering Chromium processes using process patterns before launching.
-- Lifecycle hooks:
-  - Provides context manager entry/exit and explicit close to ensure resources are released.
-- Signal handling and atexit:
-  - Registers handlers for SIGINT/SIGTERM and atexit to close the browser and exit cleanly.
+### BrowserManager: Modular Browser Lifecycle Management
+The BrowserManager class provides comprehensive browser lifecycle management with advanced stealth capabilities and robust error handling.
+
+#### Launch and Initialization
+- **Orphan Process Cleanup**: Scans and terminates lingering Chromium processes before launching new instances
+- **Playwright Startup**: Initializes Playwright with custom arguments for sandbox and automation bypass
+- **Context Creation**: Creates browser context with viewport configuration and HTTP headers
+- **Stealth Application**: Applies playwright-stealth with comprehensive navigator overrides
+
+#### Stealth Configuration
+- **Navigator Platform Override**: Sets Linux x86_64 platform to mimic real desktop environments
+- **Language Configuration**: Configures multiple languages (zh-CN, zh, en-US, en) for realistic fingerprint
+- **WebGL Vendor Override**: Uses Intel Inc. vendor with Intel Iris OpenGL Engine renderer
+- **Header Injection**: Sets Accept-Language and Accept headers for realistic browser behavior
+
+#### Multi-Subsite Navigation
+- **Configuration-Based Navigation**: Uses CSS selectors from configuration for reliable element targeting
+- **Network State Management**: Waits for networkidle states and applies extra waits for complex pages
+- **Retry Logic**: Implements automatic retry mechanism for navigation failures
+- **Diagnostic Mode**: Provides detailed status reporting for troubleshooting
+
+#### WAF Detection and Bypass
+- **Dual Detection Method**: Checks for both CAPTCHA container (#yzm) and body length validation
+- **Automatic Retry**: Implements exponential backoff with configurable retry attempts
+- **Error Classification**: Distinguishes between navigation errors and WAF blocks
+- **Graceful Degradation**: Continues operation with appropriate error handling
 
 ```mermaid
 classDiagram
 class BrowserManager {
 +bool headless
 +dict viewport
++dict config
 +launch()
 +close()
 +navigate(subsite_name)
@@ -161,291 +186,260 @@ class BrowserManager {
 +_check_waf()
 +_cleanup_orphans()
 }
-class CaptchaSolver {
-+health_check() bool
-+get_captcha(page) str
-+solve(b64) (str, float)
-+refresh(page)
+class Stealth {
++navigator_platform_override
++navigator_languages_override
++webgl_vendor_override
++apply_stealth_sync(page)
 }
-class QueryEngine {
-+query(company) list
-+_submit()
-+_dismiss_dialogs()
-+_collect_all_pages() list
+class WafDetection {
++_check_waf() void
++has_yzm boolean
++body_length int
 }
-class DetailScreenshot {
-+capture_all(records) dict
-+_capture_one(view_id, index, case_no) str
+class Navigation {
++_click_subsite(name) boolean
++css_selector string
++extra_wait_sec int
 }
-class ScreenshotBackfiller {
-+find_missing_screenshots() list
-+backfill_batch(records)
-+run()
-}
-class BatchRunner {
-+run(companies) dict
-+save_batch_json(path)
-}
-BrowserManager --> CaptchaSolver : "uses"
-BrowserManager --> QueryEngine : "uses"
-QueryEngine --> CaptchaSolver : "uses"
-DetailScreenshot --> BrowserManager : "uses page"
-ScreenshotBackfiller --> CaptchaSolver : "uses"
-BatchRunner --> BrowserManager : "uses"
-BatchRunner --> QueryEngine : "uses"
-BatchRunner --> DetailScreenshot : "uses"
+BrowserManager --> Stealth : "applies"
+BrowserManager --> WafDetection : "uses"
+BrowserManager --> Navigation : "uses"
 ```
 
 **Diagram sources**
-- [zxgk_query.py:175-324](file://zxgk_query.py#L175-L324)
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
-- [zxgk_query.py:396-618](file://zxgk_query.py#L396-L618)
-- [zxgk_query.py:682-725](file://zxgk_query.py#L682-L725)
-- [zxgk_query.py:776-1059](file://zxgk_query.py#L776-L1059)
-- [zxgk_query.py:1065-1197](file://zxgk_query.py#L1065-L1197)
+- [zxgk/browser.py:58-190](file://zxgk/browser.py#L58-L190)
 
 **Section sources**
-- [zxgk_query.py:175-324](file://zxgk_query.py#L175-L324)
+- [zxgk/browser.py:58-190](file://zxgk/browser.py#L58-L190)
 
 ### WAF Detection and Bypass Mechanisms
-- Detection:
-  - Checks for the presence of the CAPTCHA container element and evaluates body length to infer WAF blocking.
-- Bypass:
-  - Automatic retry loop with delays; refreshes CAPTCHA on failures; dismisses overlays before reading results; handles “no results” and “captcha error” messages.
-- Navigation robustness:
-  - Uses CSS selectors resolved from configuration; validates click success and raises a dedicated navigation error if selector fails.
+The system implements sophisticated WAF detection using multiple validation criteria and intelligent retry logic.
+
+#### Detection Strategy
+- **Primary Indicator**: Presence of CAPTCHA container element (#yzm)
+- **Secondary Validation**: Body length analysis to detect blocked responses
+- **Real-time Monitoring**: Continuous validation during navigation and query operations
+
+#### Bypass Implementation
+- **Retry Configuration**: Up to 3 attempts with 30-second delays between retries
+- **Intelligent Recovery**: Differentiates between navigation failures and WAF blocks
+- **State Preservation**: Maintains browser state across retry attempts
+- **Failure Classification**: Provides detailed error information for troubleshooting
+
+#### Navigation Robustness
+- **CSS Selector Validation**: Verifies element existence before interaction
+- **Element Targeting**: Uses closest('a') to ensure proper anchor element selection
+- **Target Attribute Management**: Sets target='_self' for seamless navigation
+- **Error Handling**: Raises specific SubsiteNavError for navigation failures
 
 ```mermaid
 flowchart TD
-Start(["Start Navigation"]) --> GotoMain["Go to main site<br/>wait_until='networkidle'"]
-GotoMain --> Wait2Sec["Wait 2 seconds"]
-Wait2Sec --> ClickSubsite["Click subsite via CSS selector"]
-ClickSubsite --> WaitForIdle["Wait for networkidle"]
-WaitForIdle --> ExtraWait["Optional extra wait"]
-ExtraWait --> CheckWAF["Check WAF:<br/>#yzm exists + body length"]
-CheckWAF --> |OK| Done(["Ready"])
-CheckWAF --> |Blocked| Retry{"Attempt < Max?"}
-Retry --> |Yes| Delay["Sleep 30s"] --> GotoMain
-Retry --> |No| RaiseErr["Raise WAF error"]
+Start(["Navigation Attempt"]) --> Launch["Launch Browser<br/>Apply Stealth"]
+Launch --> MainSite["Navigate to Main Site"]
+MainSite --> ClickSubsite["Click Subsite via CSS"]
+ClickSubsite --> WaitLoad["Wait for Load State"]
+WaitLoad --> ExtraWait["Apply Extra Wait"]
+ExtraWait --> CheckWAF["WAF Detection:<br/>#yzm + Body Length"]
+CheckWAF --> |Pass| Ready["Ready for Queries"]
+CheckWAF --> |Fail| Retry{"Attempts < 3?"}
+Retry --> |Yes| Delay["30 Second Delay"] --> Launch
+Retry --> |No| Block["WAF Blocked Error"]
 ```
 
 **Diagram sources**
-- [zxgk_query.py:251-304](file://zxgk_query.py#L251-L304)
+- [zxgk/browser.py:117-143](file://zxgk/browser.py#L117-L143)
+- [zxgk/browser.py:163-170](file://zxgk/browser.py#L163-L170)
 
 **Section sources**
-- [zxgk_query.py:251-304](file://zxgk_query.py#L251-L304)
+- [zxgk/browser.py:117-143](file://zxgk/browser.py#L117-L143)
+- [zxgk/browser.py:163-170](file://zxgk/browser.py#L163-L170)
 
-### Browser Lifecycle Management and Signal Handling
-- Launch:
-  - Starts Playwright, cleans orphans, creates browser/context/page, applies stealth, and stores a global reference for cleanup.
-- Close:
-  - Ensures orderly closure of context, browser, and Playwright, suppressing exceptions during cleanup.
-- Orphan cleanup:
-  - Uses process patterns to terminate lingering Chromium processes before launching.
-- Graceful shutdown:
-  - Registers signal handlers for SIGINT/SIGTERM to close the browser and exit with a signal-derived code.
-- atexit:
-  - Registers a cleanup hook to close the browser on normal termination.
+### Advanced Signal Handling and Cleanup
+The system implements comprehensive signal handling and cleanup mechanisms for graceful shutdown.
+
+#### Signal Management
+- **SIGINT Handler**: Cleans up browser resources and exits with signal-derived code
+- **SIGTERM Handler**: Provides identical cleanup behavior for termination signals
+- **atexit Registration**: Ensures cleanup on normal program termination
+- **Global Reference Management**: Tracks browser instance for proper cleanup
+
+#### Cleanup Procedures
+- **Resource Hierarchy**: Closes contexts, browsers, then Playwright in proper order
+- **Exception Suppression**: Prevents cleanup failures from masking original errors
+- **Process Termination**: Terminates orphaned Chromium processes before launch
+- **Pattern Matching**: Uses multiple process patterns to ensure complete cleanup
 
 ```mermaid
 sequenceDiagram
-participant Proc as "Process"
+participant App as "Application"
 participant BM as "BrowserManager"
-participant PW as "Playwright"
-participant Br as "Browser"
-participant Ctx as "Context"
-participant Pg as "Page"
-Proc->>BM : launch()
+participant OS as "Operating System"
+App->>BM : launch()
 BM->>BM : _cleanup_orphans()
-BM->>PW : start()
-BM->>Br : chromium.launch(args)
-BM->>Ctx : new_context(viewport, headers)
-BM->>Pg : new_page()
-BM->>Pg : apply_stealth_sync()
-BM-->>Proc : ready
-Proc->>BM : navigate(subsite)
-BM->>Pg : goto(main) + wait
-BM->>Pg : evaluate(click via CSS)
-BM->>Pg : wait_for_load_state(networkidle)
-BM->>Pg : _check_waf()
-Proc-->>BM : signal (SIGINT/SIGTERM)
+BM->>BM : Register Signal Handlers
+BM->>BM : Start Playwright
+BM->>BM : Create Browser Context
+BM->>BM : Apply Stealth
+App->>OS : SIGINT/SIGTERM
+OS->>BM : Signal Handler
 BM->>BM : _cleanup()
-BM->>Ctx : close()
-BM->>Br : close()
-BM->>PW : stop()
-Proc-->>Proc : exit
+BM->>BM : Close Resources
+BM->>OS : Exit with code
 ```
 
 **Diagram sources**
-- [zxgk_query.py:195-232](file://zxgk_query.py#L195-L232)
-- [zxgk_query.py:234-250](file://zxgk_query.py#L234-L250)
-- [zxgk_query.py:78-94](file://zxgk_query.py#L78-L94)
+- [zxgk/browser.py:20-38](file://zxgk/browser.py#L20-L38)
+- [zxgk/browser.py:106-115](file://zxgk/browser.py#L106-L115)
 
 **Section sources**
-- [zxgk_query.py:78-94](file://zxgk_query.py#L78-L94)
-- [zxgk_query.py:195-232](file://zxgk_query.py#L195-L232)
-- [zxgk_query.py:234-250](file://zxgk_query.py#L234-L250)
+- [zxgk/browser.py:20-38](file://zxgk/browser.py#L20-L38)
+- [zxgk/browser.py:106-115](file://zxgk/browser.py#L106-L115)
 
-### Practical Examples
-- Browser initialization and navigation:
-  - Initialize BrowserManager, launch, navigate to a subsite, and validate readiness.
-- Error recovery:
-  - Catch WAF errors and retry; refresh CAPTCHA on OCR failures; dismiss overlays before reading results.
-- Batch execution:
-  - Use BatchRunner to iterate companies with intervals, retries, and progress persistence.
+### Practical Examples and Usage Patterns
+The modular architecture enables flexible usage patterns for different scenarios.
 
-```mermaid
-sequenceDiagram
-participant CLI as "CLI"
-participant BR as "BatchRunner"
-participant BM as "BrowserManager"
-participant QE as "QueryEngine"
-participant CS as "CaptchaSolver"
-CLI->>BR : run(companies)
-BR->>BM : launch() + navigate(subsite)
-loop For each company
-BR->>BM : fill search field
-BR->>CS : refresh()
-BR->>CS : get_captcha()
-BR->>CS : solve()
-BR->>QE : query(company)
-alt success
-QE-->>BR : records
-BR->>BR : save result + progress
-else blocked/no results/error
-QE-->>BR : exception
-BR->>BR : handle retry/cooldown/close-reopen
-end
-end
-BR->>BM : close()
+#### Single Company Query
+```python
+# Basic single company query
+bm = BrowserManager(config)
+try:
+    bm.launch()
+    bm.navigate("zhixing")
+    records = engine.query("Company Name")
+finally:
+    bm.close()
 ```
 
-**Diagram sources**
-- [zxgk_query.py:1095-1197](file://zxgk_query.py#L1095-L1197)
-- [zxgk_query.py:396-618](file://zxgk_query.py#L396-L618)
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
+#### Batch Processing with Error Recovery
+```python
+# Batch processing with automatic recovery
+runner = BatchRunner(config, "zhixing")
+results = runner.run(company_list)
+```
+
+#### Diagnostic Mode
+```python
+# System diagnostics
+bm = BrowserManager(config)
+result = bm.diagnose("zhixing")
+print(f"WAF Status: {result['status']}")
+```
 
 **Section sources**
-- [zxgk_query.py:1095-1197](file://zxgk_query.py#L1095-L1197)
-- [zxgk_query.py:396-618](file://zxgk_query.py#L396-L618)
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
-
-### Configuration and Environment
-- Browser configuration:
-  - Headless mode, viewport, and proxy environment cleanup.
-- WAF parameters:
-  - CAPTCHA retries, cooldown on block, company interval, screenshot interval, and max consecutive failures.
-- Subsites:
-  - Names, CSS selectors, and extra wait durations.
-- Output:
-  - Directories for general output and screenshots.
-
-**Section sources**
-- [config/zxgk.example.yaml:11-44](file://config/zxgk.example.yaml#L11-L44)
-- [config/zxgk.example.yaml:16-21](file://config/zxgk.example.yaml#L16-L21)
-- [config/zxgk.example.yaml:94-96](file://config/zxgk.example.yaml#L94-L96)
+- [zxgk/cli.py:86-164](file://zxgk/cli.py#L86-L164)
+- [zxgk/runner.py:45-145](file://zxgk/runner.py#L45-L145)
+- [zxgk/browser.py:172-190](file://zxgk/browser.py#L172-L190)
 
 ## Dependency Analysis
-- Internal dependencies:
-  - BrowserManager depends on playwright-stealth and Playwright APIs.
-  - QueryEngine depends on CaptchaSolver and DOM evaluation.
-  - DetailScreenshot depends on OpenCV and Playwright screenshot APIs.
-  - ScreenshotBackfiller depends on Feishu writer utilities for lookup and upload.
-  - BatchRunner composes BrowserManager, QueryEngine, DetailScreenshot, and writers.
-- External dependencies:
-  - Playwright, playwright-stealth, requests, PyYAML, OpenCV, and FastAPI for OCR service.
+The modular architecture introduces clear dependency relationships between components.
+
+### Internal Dependencies
+- **BrowserManager**: Depends on playwright-stealth, Playwright APIs, and configuration utilities
+- **QueryEngine**: Relies on CaptchaSolver and DOM manipulation capabilities
+- **BatchRunner**: Composes BrowserManager, QueryEngine, and output writers
+- **CLI Interface**: Orchestrates all components with configuration management
+
+### External Dependencies
+- **Playwright**: Core browser automation framework
+- **playwright-stealth**: Anti-detection library for stealth configuration
+- **Requests**: HTTP client for CAPTCHA solver communication
+- **PyYAML**: Configuration file parsing
+- **FastAPI**: OCR service framework
 
 ```mermaid
 graph LR
-Z["zxgk_query.py"] --> PS["playwright-stealth"]
-Z --> PW["playwright.sync_api"]
-Z --> REQ["requests"]
-Z --> YAML["PyYAML"]
-Z --> CV["opencv-python-headless"]
-Z --> NP["numpy"]
-D["diagnose_subsites.py"] --> PW
-D --> PS
-C["cron_daily_query.sh"] --> Z
-C --> O["captcha-solver/main.py"]
-WSQL["writers/sqlite.py"] --> SQL["sqlite3"]
-WFS["writers/feishu.py"] --> LARK["lark-cli (external)"]
+subgraph "Internal Dependencies"
+BM["BrowserManager"] --> PS["playwright-stealth"]
+BM --> PW["playwright.sync_api"]
+QE["QueryEngine"] --> CS["CaptchaSolver"]
+BR["BatchRunner"] --> BM
+BR --> QE
+CLI["CLI"] --> BM
+CLI --> QE
+CLI --> BR
+CLI --> CS
+end
+subgraph "External Dependencies"
+PW --> REQ["requests"]
+PS --> PW
+CS --> REQ
+CLI --> YAML["PyYAML"]
+CLI --> FAST["fastapi"]
+end
 ```
 
 **Diagram sources**
-- [zxgk_query.py:38-39](file://zxgk_query.py#L38-L39)
-- [setup.sh:39](file://setup.sh#L39)
-- [diagnose_subsites.py:343-359](file://diagnose_subsites.py#L343-L359)
-- [writers/sqlite.py:13](file://writers/sqlite.py#L13)
-- [writers/feishu.py:56-65](file://writers/feishu.py#L56-L65)
-- [captcha-solver/main.py:10](file://captcha-solver/main.py#L10)
+- [zxgk/browser.py:8-12](file://zxgk/browser.py#L8-L12)
+- [zxgk/query.py:4](file://zxgk/query.py#L4)
+- [zxgk/runner.py:8-12](file://zxgk/runner.py#L8-L12)
+- [zxgk/cli.py:11-17](file://zxgk/cli.py#L11-L17)
+- [zxgk/config.py:9](file://zxgk/config.py#L9)
 
 **Section sources**
-- [setup.sh:39](file://setup.sh#L39)
-- [writers/sqlite.py:13](file://writers/sqlite.py#L13)
-- [writers/feishu.py:56-65](file://writers/feishu.py#L56-L65)
+- [zxgk/browser.py:8-12](file://zxgk/browser.py#L8-L12)
+- [zxgk/config.py:9](file://zxgk/config.py#L9)
 
 ## Performance Considerations
-- Resource limits:
-  - Chromium launched with sandbox disabled and dev-shm usage disabled to improve stability on constrained environments.
-- Steady-state overhead:
-  - playwright-stealth adds minimal overhead; ensure viewport matches typical desktop resolution to reduce layout shifts.
-- Retry and backoff:
-  - WAF retry delay and cooldown prevent overwhelming the target; tune based on observed blocking frequency.
-- Memory management:
-  - Close pages, contexts, and browsers explicitly; rely on atexit and signal handlers to ensure cleanup.
-- I/O:
-  - OpenCV cropping reduces disk I/O by operating in-memory; consider disabling screenshot storage if memory pressure is observed.
-- Network:
-  - Use local OCR service to minimize latency; ensure service health before automation.
+The modular design provides several performance optimization opportunities.
 
-[No sources needed since this section provides general guidance]
+### Resource Management
+- **Process Isolation**: Each BrowserManager instance maintains its own browser process
+- **Memory Cleanup**: Proper resource hierarchy ensures efficient memory usage
+- **Connection Pooling**: Reuses browser contexts within single execution sessions
+
+### Stealth Optimization
+- **Minimal Overhead**: playwright-stealth adds negligible performance impact
+- **Selective Application**: Stealth only applied to critical pages and operations
+- **Configuration Tuning**: Customizable viewport and header settings optimize performance
+
+### Error Recovery
+- **Retry Strategy**: Intelligent retry logic prevents unnecessary resource consumption
+- **Timeout Management**: Configurable timeouts balance responsiveness with reliability
+- **Graceful Degradation**: System continues operation even with partial failures
 
 ## Troubleshooting Guide
-- WAF封禁 (WAF blocked):
-  - Symptoms: absence of CAPTCHA element or short body length; automatic retry with cooldown.
-  - Actions: wait for cooldown, verify subsite CSS selectors, and re-run.
-- Subsite navigation failure:
-  - Symptoms: CSS selector click returns false; navigation error raised.
-  - Actions: update CSS selector in configuration; run diagnostic script to probe DOM.
-- CAPTCHA solver unavailable:
-  - Symptoms: health check fails; exit code indicates solver issue.
-  - Actions: start OCR service, verify port availability, and confirm service endpoints.
-- Orphan processes:
-  - Symptoms: stale Chromium processes preventing new sessions.
-  - Actions: run orphan cleanup routine before launching; ensure signal handlers are registered.
-- Graceful shutdown:
-  - Actions: send SIGINT/SIGTERM; verify atexit cleanup closes browser.
+Comprehensive error handling and diagnostic capabilities aid in troubleshooting.
+
+### Common Issues and Solutions
+- **WAF Blocking**: Automatic retry with cooldown periods; check network connectivity
+- **Navigation Failures**: Verify CSS selectors in configuration; use diagnostic mode
+- **OCR Service Issues**: Health check endpoint; ensure service availability on port 8001
+- **Browser Crashes**: Signal handlers ensure cleanup; restart system if needed
+
+### Diagnostic Tools
+- **System Health Check**: Comprehensive dependency verification
+- **WAF Status Monitoring**: Real-time detection of blocking conditions
+- **Component Testing**: Individual component validation and isolation
 
 **Section sources**
-- [zxgk_query.py:99-107](file://zxgk_query.py#L99-L107)
-- [zxgk_query.py:271-277](file://zxgk_query.py#L271-L277)
-- [zxgk_query.py:297-304](file://zxgk_query.py#L297-L304)
-- [diagnose_subsites.py:103-130](file://diagnose_subsites.py#L103-L130)
-- [cron_daily_query.sh:48-96](file://cron_daily_query.sh#L48-L96)
-- [zxgk_query.py:234-250](file://zxgk_query.py#L234-L250)
-- [zxgk_query.py:78-94](file://zxgk_query.py#L78-L94)
+- [zxgk/browser.py:172-190](file://zxgk/browser.py#L172-L190)
+- [zxgk/cli.py:25-83](file://zxgk/cli.py#L25-L83)
+- [diagnose_subsites.py:47-200](file://diagnose_subsites.py#L47-L200)
 
 ## Conclusion
-The browser automation system integrates Playwright with stealth configuration, robust WAF detection and retry logic, and a modular architecture for navigation, OCR-based CAPTCHA solving, result collection, and optional screenshot upload. Its lifecycle management, signal handling, and cleanup routines ensure reliable operation across repeated runs and diverse environments.
-
-[No sources needed since this section summarizes without analyzing specific files]
+The modular browser automation system provides a robust foundation for the Execution Information Query System. The BrowserManager class delivers comprehensive browser lifecycle management with advanced stealth capabilities, while the modular architecture ensures maintainability, scalability, and reliability. The system's sophisticated WAF detection and bypass mechanisms, combined with comprehensive error handling and cleanup procedures, enable reliable operation across diverse environments and use cases.
 
 ## Appendices
 
-### Appendix A: Diagnostics and Setup
-- Run diagnostics to probe DOM and validate subsite readiness.
-- Install dependencies and configure OCR service; verify lark-cli authentication for Feishu integration.
+### Appendix A: Configuration and Setup
+- **Browser Configuration**: Headless mode, viewport settings, and executable path specification
+- **WAF Parameters**: Retry counts, cooldown periods, and interval configurations
+- **Subsite Definitions**: CSS selectors and navigation parameters for each target site
+- **Output Configuration**: Directory structure and file naming conventions
 
 **Section sources**
-- [diagnose_subsites.py:333-429](file://diagnose_subsites.py#L333-L429)
-- [setup.sh:1-150](file://setup.sh#L1-150)
-- [SKILL.md:155-205](file://SKILL.md#L155-L205)
+- [config/zxgk.yaml:10-42](file://config/zxgk.yaml#L10-L42)
+- [zxgk/config.py:49-104](file://zxgk/config.py#L49-L104)
 
-### Appendix B: Storage Backends
-- SQLite writer supports storing records locally with optional screenshot paths or binary blobs.
-- Feishu writer writes raw records, supports cross-reference updates, and uploads screenshots to case records.
+### Appendix B: Component Integration
+- **CLI Integration**: Command-line interface orchestrating all components
+- **Batch Processing**: Automated execution with progress tracking and recovery
+- **Output Writers**: Multiple export formats including Feishu and SQLite
+- **Diagnostic Tools**: Comprehensive system health monitoring and validation
 
 **Section sources**
-- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
+- [zxgk/cli.py:181-321](file://zxgk/cli.py#L181-L321)
+- [zxgk/runner.py:15-278](file://zxgk/runner.py#L15-L278)
 - [writers/feishu.py:154-201](file://writers/feishu.py#L154-L201)
-- [writers/feishu.py:369-478](file://writers/feishu.py#L369-L478)
+- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)

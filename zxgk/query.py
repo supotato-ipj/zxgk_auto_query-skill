@@ -6,7 +6,11 @@ from .config import logger, parse_chinese_date
 
 # ── 模块级工具：弹窗处理（供 diagnose_subsites.py 等复用）──
 def dismiss_overlay(page):
-    """Dismiss confirmation dialogs and error popups (module-level, reusable)."""
+    """Dismiss confirmation dialogs and error popups (module-level, reusable).
+
+    Clicks 确定/关闭 buttons scoped to dialog containers, then presses Escape
+    as fallback for dialogs without clickable close buttons.
+    """
     page.evaluate("""
     () => {
         const dialogs = document.querySelectorAll(
@@ -29,6 +33,8 @@ def dismiss_overlay(page):
         }
     }
     """)
+    # Escape key as fallback (handles dialogs without clickable close buttons)
+    page.keyboard.press("Escape")
 
 
 def dismiss_dialogs(page, max_iterations=8):
@@ -161,56 +167,12 @@ class QueryEngine:
         self.page.wait_for_timeout(500)
         self._dismiss_dialogs()
 
-    def _dismiss_overlay(self):
-        """Dismiss confirmation dialogs and error popups.
-
-        The zxgk website shows a confirmation overlay after search() that blocks
-        access to #result-block. On captcha failure, a second error popup appears
-        on top. Both must be dismissed before results can be read.
-
-        Button search is scoped to dialog/modal containers to avoid mis-clicking
-        page-level buttons with the same label.
-        """
-        self.page.evaluate("""
-        () => {
-            const dialogs = document.querySelectorAll(
-                '.dialog, .modal, .popup, [role="dialog"], [role="alertdialog"], '
-                + '.layui-layer-dialog, .layui-layer, .ui-dialog'
-            );
-            const container = dialogs.length > 0
-                ? Array.from(dialogs)
-                : [document.body];
-            for (const d of container) {
-                const btns = d.querySelectorAll('button, input[type="button"], a.btn');
-                for (const btn of btns) {
-                    const t = (btn.textContent || '').trim();
-                    if (t === '确定') { btn.click(); }
-                }
-                for (const btn of btns) {
-                    const t = (btn.textContent || '').trim();
-                    if (t === '关闭') { btn.click(); }
-                }
-            }
-        }
-        """)
-
     def _dismiss_dialogs(self):
-        """Poll-dismiss overlays until all dialogs are gone or timeout."""
-        for _ in range(8):
-            try:
-                self._dismiss_overlay()
-            except Exception as e:
-                logger.debug("弹窗 dismiss 异常: %s", e)
-                return
-            remaining = self.page.evaluate(
-                '() => document.querySelectorAll('
-                '".dialog, .modal, .popup, [role=\\"dialog\\"], [role=\\"alertdialog\\"], '
-                '.layui-layer-dialog, .layui-layer, .ui-dialog"'
-                ').length'
-            )
-            if remaining == 0:
-                break
-            time.sleep(0.5)
+        """Poll-dismiss overlays until all dialogs are gone or timeout.
+
+        Delegates to module-level dismiss_dialogs for unified close logic.
+        """
+        dismiss_dialogs(self.page)
 
     def _collect_all_pages(self):
         """翻页循环，viewId 去重"""

@@ -2,6 +2,11 @@
 
 <cite>
 **Referenced Files in This Document**
+- [captcha.py](file://zxgk/captcha.py)
+- [query.py](file://zxgk/query.py)
+- [cli.py](file://zxgk/cli.py)
+- [runner.py](file://zxgk/runner.py)
+- [browser.py](file://zxgk/browser.py)
 - [main.py](file://captcha-solver/main.py)
 - [solver.py](file://captcha-solver/solver.py)
 - [preprocess.py](file://captcha-solver/preprocess.py)
@@ -9,10 +14,19 @@
 - [Dockerfile](file://captcha-solver/Dockerfile)
 - [docker-compose.yml](file://captcha-solver/docker-compose.yml)
 - [requirements.txt](file://captcha-solver/requirements.txt)
-- [zxgk_query.py](file://zxgk_query.py)
 - [README.md](file://README.md)
 - [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated CaptchaSolver class implementation to reflect the new 72-line implementation in zxgk/captcha.py
+- Added comprehensive documentation for the new browser automation integration patterns
+- Enhanced OCR service communication documentation with the new API endpoints
+- Updated image extraction and canvas-based processing documentation
+- Added detailed confidence-based validation and retry mechanisms
+- Expanded integration patterns with QueryEngine and BatchRunner classes
+- Updated troubleshooting guide with new error handling strategies
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -36,7 +50,7 @@
 
 ## Introduction
 
-The CAPTCHA solving system is a comprehensive solution designed to automate the recognition of verification codes in Chinese enforcement information websites. The system consists of two primary components: a standalone OCR service built with PaddleOCR and a browser automation framework that integrates with the OCR service to solve CAPTCHAs during automated web scraping.
+The CAPTCHA solving system is a comprehensive solution designed to automate the recognition of verification codes in Chinese enforcement information websites. The system consists of two primary components: a dedicated CaptchaSolver class with 72 lines of implementation in zxgk/captcha.py and a standalone OCR service built with PaddleOCR, providing seamless integration with browser automation frameworks.
 
 The system addresses the challenge of CAPTCHA recognition in government websites by providing:
 - Real-time OCR processing using PaddleOCR
@@ -53,10 +67,10 @@ The CAPTCHA solving system follows a microservice architecture with clear separa
 ```mermaid
 graph TB
 subgraph "Browser Automation Layer"
-BA[BrowserManager]
+BM[BrowserManager]
 QE[QueryEngine]
 CS[CaptchaSolver]
-DS[DetailScreenshot]
+DR[DetailScreenshot]
 end
 subgraph "OCR Service Layer"
 API[FastAPI Server]
@@ -69,7 +83,7 @@ WEBSITE[Chinese Enforcement Website]
 FS[File System]
 FEISHU[Feishu API]
 end
-BA --> QE
+BM --> QE
 QE --> CS
 CS --> API
 API --> SOLVER
@@ -77,15 +91,16 @@ SOLVER --> PREPROC
 PREPROC --> PADDLE
 CS -.-> WEBSITE
 QE --> WEBSITE
-DS --> WEBSITE
+DR --> WEBSITE
 API --> FS
 QE --> FEISHU
 ```
 
 **Diagram sources**
-- [main.py:101-142](file://captcha-solver/main.py#L101-L142)
-- [solver.py:8-33](file://captcha-solver/solver.py#L8-L33)
-- [zxgk_query.py:328-392](file://zxgk_query.py#L328-L392)
+- [browser.py:58-190](file://zxgk/browser.py#L58-L190)
+- [query.py:53-276](file://zxgk/query.py#L53-L276)
+- [captcha.py:9-73](file://zxgk/captcha.py#L9-L73)
+- [main.py:101-215](file://captcha-solver/main.py#L101-L215)
 
 The architecture consists of four main layers:
 
@@ -96,29 +111,32 @@ The architecture consists of four main layers:
 
 ## Core Components
 
-### OCR Service Components
+### CaptchaSolver Class
 
-The OCR service is built using FastAPI and PaddleOCR, providing multiple API endpoints for different input formats:
+The CaptchaSolver class serves as the core OCR recognition component, providing a lightweight interface for browser automation integration:
 
 ```mermaid
 classDiagram
 class CaptchaSolver {
--PaddleOCR ocr
--bool _initialized
-+recognize(image) Tuple~str, float~
-+__new__() CaptchaSolver
-+__init__() void
+-String server_url
++health_check() bool
++get_captcha(page) string
++solve(b64) tuple
++refresh(page) void
 }
-class PreprocessPipeline {
-+remove_interference_lines(gray, kernel) ndarray
-+enhance_contrast(gray, clip_limit, tile_size) ndarray
-+binarize(gray, method, block_size, c) ndarray
-+morphological_clean(binary, open_kernel, close_kernel) ndarray
-+preprocess(image_path, debug) ndarray
-+preprocess_from_bytes(image_bytes, debug) ndarray
-+preprocess_from_bytes_gray(image_bytes) ndarray
-+preprocess_from_bytes_raw(image_bytes) ndarray
-+preprocess_from_bytes_mode(image_bytes, mode) ndarray
+class BrowserManager {
++launch() void
++navigate(subsite) void
++diagnose(subsite) dict
++close() void
+}
+class QueryEngine {
+-Page page
+-CaptchaSolver solver
+-int max_retries
++query(company) list
++_submit() void
++_collect_all_pages() list
 }
 class FastAPIServer {
 +app FastAPI
@@ -128,80 +146,115 @@ class FastAPIServer {
 +health() JSONResponse
 +root() JSONResponse
 }
-CaptchaSolver --> PreprocessPipeline : "uses"
-FastAPIServer --> CaptchaSolver : "depends on"
+CaptchaSolver --> FastAPIServer : "communicates with"
+BrowserManager --> QueryEngine : "provides Page"
+QueryEngine --> CaptchaSolver : "uses"
 ```
 
 **Diagram sources**
-- [solver.py:8-83](file://captcha-solver/solver.py#L8-L83)
-- [preprocess.py:1-130](file://captcha-solver/preprocess.py#L1-L130)
+- [captcha.py:9-73](file://zxgk/captcha.py#L9-L73)
+- [browser.py:58-190](file://zxgk/browser.py#L58-L190)
+- [query.py:53-276](file://zxgk/query.py#L53-L276)
 - [main.py:101-215](file://captcha-solver/main.py#L101-L215)
 
 **Section sources**
-- [main.py:101-215](file://captcha-solver/main.py#L101-L215)
-- [solver.py:8-83](file://captcha-solver/solver.py#L8-L83)
-- [preprocess.py:1-130](file://captcha-solver/preprocess.py#L1-L130)
+- [captcha.py:9-73](file://zxgk/captcha.py#L9-L73)
+- [browser.py:58-190](file://zxgk/browser.py#L58-L190)
+- [query.py:53-276](file://zxgk/query.py#L53-L276)
 
 ## CaptchaSolver Class Implementation
 
-The `CaptchaSolver` class serves as the core OCR recognition component, implementing a singleton pattern to avoid repeated model loading:
+The `CaptchaSolver` class provides a focused interface for CAPTCHA solving with intelligent retry mechanisms and confidence threshold validation:
 
-### Singleton Pattern Implementation
+### Class Structure and Initialization
 
-The class implements a custom singleton pattern to ensure efficient memory usage and model initialization:
+The class implements a simple yet effective design pattern with configurable server URLs:
+
+```mermaid
+classDiagram
+class CaptchaSolver {
+-String server_url
++__init__(server_url) void
++health_check() bool
++get_captcha(page) string
++solve(b64) tuple
++refresh(page) void
+}
+note for CaptchaSolver : "Server URL defaults to http : //localhost : 8001"
+```
+
+**Diagram sources**
+- [captcha.py:9-12](file://zxgk/captcha.py#L9-L12)
+
+### Health Check Implementation
+
+The health check mechanism ensures service availability before OCR processing:
 
 ```mermaid
 sequenceDiagram
 participant Client as "Client Code"
 participant CS as "CaptchaSolver"
-participant Paddle as "PaddleOCR"
-Client->>CS : __new__()
-CS->>CS : Check _instance
-alt First Instance
-CS->>CS : Create new instance
-CS->>CS : Initialize _initialized = False
-else Existing Instance
-CS->>CS : Return existing instance
-end
-Client->>CS : __init__()
-CS->>CS : Check _initialized
-alt Not Initialized
-CS->>Paddle : Initialize PaddleOCR
-Paddle-->>CS : Model Loaded
-CS->>CS : Set _initialized = True
-else Already Initialized
-CS->>CS : Return
+participant API as "OCR Service"
+Client->>CS : health_check()
+CS->>API : GET /health (timeout=5s)
+API-->>CS : HTTP 200 or error
+alt Service Available
+CS->>CS : Return True
+else Service Unavailable
+CS->>CS : Return False
 end
 ```
 
 **Diagram sources**
-- [solver.py:13-33](file://solver.py#L13-L33)
+- [captcha.py:13-18](file://zxgk/captcha.py#L13-L18)
 
-### OCR Recognition Process
+### Image Extraction from DOM Elements
 
-The recognition process involves multiple stages of image processing and text extraction:
+The system uses JavaScript evaluation to extract images from the verification code container:
 
 ```mermaid
 flowchart TD
-Start([OCR Recognition Request]) --> ValidateInput["Validate OCR Input"]
-ValidateInput --> CheckResult{"OCR Result<br/>Available?"}
-CheckResult --> |No| ReturnEmpty["Return ('', None)"]
-CheckResult --> |Yes| ExtractData["Extract Recognition Data"]
-ExtractData --> CheckTexts{"Text Arrays<br/>Available?"}
-CheckTexts --> |No| ReturnEmpty
-CheckTexts --> |Yes| JoinTexts["Join Recognition Texts"]
-JoinTexts --> CleanText["Remove Non-Alphanumeric Characters"]
-CleanText --> CalcConf["Calculate Average Confidence"]
-CalcConf --> ReturnResult["Return (cleaned_text, avg_confidence)"]
-ReturnEmpty --> End([End])
-ReturnResult --> End
+Start([DOM Element Extraction]) --> FindYZM["Find #yzm Element"]
+FindYZM --> CheckFound{"Element Found?"}
+CheckFound --> |No| ReturnNull["Return Null"]
+CheckFound --> |Yes| GetContainer["Get Container Element"]
+GetContainer --> FindImages["Find All Images in Container"]
+FindImages --> FilterImages["Filter by Size Constraints"]
+FilterImages --> CreateCanvas["Create Canvas Element"]
+CreateCanvas --> DrawImage["Draw Image to Canvas"]
+DrawImage --> ConvertToDataURL["Convert to Data URL"]
+ConvertToDataURL --> ReturnDataURL["Return Data URL"]
+ReturnNull --> End([End])
+ReturnDataURL --> End
 ```
 
 **Diagram sources**
-- [solver.py:34-55](file://solver.py#L34-L55)
+- [captcha.py:20-40](file://zxgk/captcha.py#L20-L40)
+
+### Intelligent Retry Mechanism
+
+The OCR solving process includes a two-attempt retry strategy with exponential backoff:
+
+```mermaid
+flowchart TD
+Start([OCR Request]) --> SplitBase64["Split Base64 Data"]
+SplitBase64 --> FirstAttempt["First Attempt"]
+FirstAttempt --> CheckSuccess{"Request Success?"}
+CheckSuccess --> |Yes| ParseResponse["Parse JSON Response"]
+CheckSuccess --> |No| SecondAttempt["Second Attempt (1s delay)"]
+SecondAttempt --> CheckSuccess2{"Request Success?"}
+CheckSuccess2 --> |Yes| ParseResponse
+CheckSuccess2 --> |No| RaiseError["Raise Exception"]
+ParseResponse --> ReturnResult["Return (text, confidence)"]
+ReturnResult --> End([End])
+RaiseError --> End
+```
+
+**Diagram sources**
+- [captcha.py:42-58](file://zxgk/captcha.py#L42-L58)
 
 **Section sources**
-- [solver.py:8-83](file://captcha-solver/solver.py#L8-L83)
+- [captcha.py:9-73](file://zxgk/captcha.py#L9-L73)
 
 ## OCR Service Communication
 
@@ -274,7 +327,7 @@ ReturnDataURL --> End
 ```
 
 **Diagram sources**
-- [zxgk_query.py:339-359](file://zxgk_query.py#L339-L359)
+- [captcha.py:20-40](file://zxgk/captcha.py#L20-L40)
 
 ### Image Filtering Criteria
 
@@ -286,7 +339,7 @@ The system applies strict filtering criteria to identify legitimate CAPTCHA imag
 - **Container Hierarchy**: Located within form-group or parent containers
 
 **Section sources**
-- [zxgk_query.py:339-359](file://zxgk_query.py#L339-L359)
+- [captcha.py:20-40](file://zxgk/captcha.py#L20-L40)
 
 ## Image Preprocessing Pipeline
 
@@ -308,7 +361,7 @@ ConvertColorSpace --> OutputImage["Output Preprocessed Image"]
 ```
 
 **Diagram sources**
-- [preprocess.py:86-102](file://preprocess.py#L86-L102)
+- [preprocess.py:86-102](file://captcha-solver/preprocess.py#L86-L102)
 
 ### Individual Preprocessing Steps
 
@@ -343,7 +396,7 @@ DataURL-->>DOM : Return Data URL String
 ```
 
 **Diagram sources**
-- [zxgk_query.py:350-355](file://zxgk_query.py#L350-L355)
+- [captcha.py:31-35](file://zxgk/captcha.py#L31-L35)
 
 ### Memory Management
 
@@ -353,7 +406,7 @@ The canvas-based approach ensures efficient memory usage by:
 - Allowing automatic garbage collection of intermediate objects
 
 **Section sources**
-- [zxgk_query.py:339-359](file://zxgk_query.py#L339-L359)
+- [captcha.py:20-40](file://zxgk/captcha.py#L20-L40)
 
 ## Confidence-Based Validation
 
@@ -378,7 +431,7 @@ SubmitResult --> End
 ```
 
 **Diagram sources**
-- [zxgk_query.py:437-440](file://zxgk_query.py#L437-L440)
+- [query.py:94-97](file://zxgk/query.py#L94-L97)
 
 ### Threshold Configuration
 
@@ -387,7 +440,7 @@ SubmitResult --> End
 - **Retry Logic**: Up to 5 attempts per query with exponential backoff
 
 **Section sources**
-- [zxgk_query.py:437-440](file://zxgk_query.py#L437-L440)
+- [query.py:94-97](file://zxgk/query.py#L94-L97)
 
 ## Integration Patterns
 
@@ -426,7 +479,9 @@ CaptchaSolver --> BrowserManager : "interacts with"
 ```
 
 **Diagram sources**
-- [zxgk_query.py:175-392](file://zxgk_query.py#L175-L392)
+- [browser.py:58-190](file://zxgk/browser.py#L58-L190)
+- [query.py:53-276](file://zxgk/query.py#L53-L276)
+- [cli.py:86-110](file://zxgk/cli.py#L86-L110)
 
 ### Configuration-Driven Integration
 
@@ -439,7 +494,7 @@ The system supports flexible configuration through YAML files:
 
 **Section sources**
 - [config/zxgk.example.yaml:7-44](file://config/zxgk.example.yaml#L7-L44)
-- [zxgk_query.py:1065-1197](file://zxgk_query.py#L1065-L1197)
+- [cli.py:86-110](file://zxgk/cli.py#L86-L110)
 
 ## Retry Mechanisms
 
@@ -462,7 +517,7 @@ Fail --> End
 ```
 
 **Diagram sources**
-- [zxgk_query.py:411-482](file://zxgk_query.py#L411-L482)
+- [query.py:68-139](file://zxgk/query.py#L68-L139)
 
 ### Specific Retry Scenarios
 
@@ -472,7 +527,7 @@ Fail --> End
 4. **Network Operations**: Up to 2 attempts with exponential backoff
 
 **Section sources**
-- [zxgk_query.py:411-482](file://zxgk_query.py#L411-L482)
+- [query.py:68-139](file://zxgk/query.py#L68-L139)
 
 ## Error Handling Strategies
 
@@ -500,7 +555,7 @@ Exception <|-- SubsiteNavError
 ```
 
 **Diagram sources**
-- [zxgk_query.py:99-107](file://zxgk_query.py#L99-L107)
+- [browser.py:12-12](file://zxgk/browser.py#L12-L12)
 
 ### Error Recovery Patterns
 
@@ -510,7 +565,7 @@ Exception <|-- SubsiteNavError
 - **OCR Failure**: Automatic CAPTCHA refresh and alternative preprocessing modes
 
 **Section sources**
-- [zxgk_query.py:99-107](file://zxgk_query.py#L99-L107)
+- [browser.py:12-12](file://zxgk/browser.py#L12-L12)
 
 ## Performance Optimization
 
@@ -629,7 +684,7 @@ Browser-->>User : Display Results
 ```
 
 **Diagram sources**
-- [zxgk_query.py:409-482](file://zxgk_query.py#L409-L482)
+- [query.py:66-139](file://zxgk/query.py#L66-L139)
 
 ### Integration with Browser Automation
 
@@ -641,7 +696,7 @@ The system integrates seamlessly with Playwright-based browser automation:
 4. **Screenshot Capture**: Optional screenshot capture for evidence
 
 **Section sources**
-- [zxgk_query.py:409-482](file://zxgk_query.py#L409-L482)
+- [query.py:66-139](file://zxgk/query.py#L66-L139)
 
 ## Troubleshooting Guide
 

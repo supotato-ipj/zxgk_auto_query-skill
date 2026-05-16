@@ -86,6 +86,7 @@ def run_diagnose(config, subsite):
 def run_single(config, args):
     """单条查询"""
     setup_environment()
+    args.subsite = args.subsite or "zhixing"
     solver = CaptchaSolver(args.captcha_server or config.get("captcha_server", "http://localhost:8001"))
 
     if not solver.health_check():
@@ -181,6 +182,7 @@ def run_backfill(config, args):
 def run_batch(config, args):
     """批量查询"""
     setup_environment()
+    args.subsite = args.subsite or "zhixing"
     solver = CaptchaSolver(args.captcha_server or config.get("captcha_server", "http://localhost:8001"))
 
     if not solver.health_check():
@@ -245,9 +247,9 @@ def build_parser():
                         help="公司名称（单条查询）")
     parser.add_argument("--batch", default=None,
                         help="批量公司列表文件 (YAML 或每行一个公司名的文本文件)")
-    parser.add_argument("--subsite", default="zhixing",
+    parser.add_argument("--subsite", default=None,
                         choices=["zhixing", "shixin", "xgl"],
-                        help="子站 (默认: zhixing)")
+                        help="子站 (默认: zhixing，async 模式下默认全部)")
     parser.add_argument("--no-screenshots", action="store_true", default=False,
                         help="禁用详情弹窗截图（仅 --mode screenshot 模式有效）")
     parser.add_argument("--feishu", action="store_true", default=False,
@@ -270,12 +272,84 @@ def build_parser():
                         help="合并 JSON 输出路径（batch 模式）")
     parser.add_argument("--resume", action="store_true", default=False,
                         help="批量模式断点续跑")
+    parser.add_argument("--async", "--parallel", dest="async_mode",
+                        action="store_true", default=False,
+                        help="异步并发模式：同时查询所有子站（--batch 模式下生效）")
     parser.add_argument("--diagnose", action="store_true", default=False,
                         help="诊断模式：检查 WAF 状态和依赖")
     parser.add_argument("--verbose", "-v", action="store_true", default=False,
                         help="详细日志")
 
     return parser
+
+
+def run_async_batch(config, args):
+    """异步并发批量查询（所有子站并行）"""
+    import sys
+    if sys.version_info < (3, 11):
+        logger.error("--async 模式需要 Python 3.11+ (asyncio.TaskGroup)，当前: %s", sys.version)
+        return 3
+    import asyncio
+    setup_environment()
+    solver = CaptchaSolver(args.captcha_server or config.get("captcha_server", "http://localhost:8001"))
+
+    if not solver.health_check():
+        logger.error("captcha-solver 不可用: %s", solver.server_url)
+        return 3
+
+    companies = load_company_list(args.batch)
+    mode = args.mode
+
+    # 确定要查询的子站
+    if args.subsite and args.subsite != "zhixing":
+        # 用户指定了子站 → 只查该子站（异步路径，无明显并发收益但行为一致）
+        subsites = [args.subsite]
+    else:
+        subsites = list(config.get("subsites", {}).keys()) or ["zhixing", "shixin", "xgl"]
+
+    # full 模式自动启用飞书
+    if mode == "full":
+        args.feishu = True
+
+    from .async_runner import run_parallel_subsites
+
+    all_results = asyncio.run(run_parallel_subsites(
+        config=config,
+        companies=companies,
+        subsites=subsites,
+        mode=mode,
+        feishu_enabled=args.feishu,
+        resume=args.resume,
+        max_per_session=args.max_per_session,
+        output_dir=args.output_dir,
+    ))
+
+    # 汇总
+    total_success = 0
+    total_no = 0
+    total_blocked = 0
+    total_errors = 0
+    for subsite, results in all_results.items():
+        s = len(results["success"])
+        n = len(results["no_results"])
+        b = len(results["blocked"])
+        e = len(results["errors"])
+        total_success += s
+        total_no += n
+        total_blocked += b
+        total_errors += e
+        logger.info("[%s] ✅%d 无结果%d 封禁%d 错误%d", subsite, s, n, b, e)
+
+    logger.info("总计: ✅%d 无结果%d 封禁%d 错误%d",
+                total_success, total_no, total_blocked, total_errors)
+
+    if total_blocked > 0 and total_success == 0:
+        return 2
+    if total_success == 0 and total_no > 0:
+        return 1
+    if total_errors > 0 and total_success == 0:
+        return 1
+    return 0
 
 
 def main():
@@ -289,7 +363,7 @@ def main():
 
     # --diagnose: 诊断模式
     if args.diagnose:
-        return run_diagnose(config, args.subsite)
+        return run_diagnose(config, args.subsite or "zhixing")
 
     # --mode backfill 必须指定 --batch-id
     if args.mode == "backfill" and not args.batch_id:
@@ -316,5 +390,7 @@ def main():
 
     if args.company:
         return run_single(config, args)
+    elif args.async_mode:
+        return run_async_batch(config, args)
     else:
         return run_batch(config, args)

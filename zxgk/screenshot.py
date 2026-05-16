@@ -101,15 +101,7 @@ class DetailScreenshot:
             with open(str(filepath), 'wb') as f:
                 f.write(screenshot_bytes)
 
-        # 关闭弹窗
-        self.page.evaluate("""
-        () => {
-            for (const el of document.querySelectorAll('a,span,div')) {
-                if (el.textContent?.trim() === '关闭' && el.offsetParent !== null) {
-                    el.click(); return;
-                }
-            }
-        }
-        """)
-        time.sleep(1)
+        # 关闭弹窗（统一 dismiss 逻辑）
+        from .query import dismiss_dialogs
+        dismiss_dialogs(self.page)
         return str(filepath)

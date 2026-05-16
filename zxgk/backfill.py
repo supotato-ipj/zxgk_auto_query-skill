@@ -192,7 +192,8 @@ class ScreenshotBackfiller:
 
     def _search_company(self, page, solver, company):
         """在 zhixing 子站搜索公司名，过验证码。返回 True/False"""
-        for attempt in range(8):
+        max_retries = self.config.get("waf", {}).get("captcha_max_retries", 5)
+        for attempt in range(max_retries):
             page.fill("#pName", company)
             page.wait_for_timeout(500)
 
@@ -262,25 +263,9 @@ class ScreenshotBackfiller:
         if crop_w is None:
             page.screenshot(path=output_path, full_page=False)
 
-        # 关闭弹窗
-        page.evaluate("""
-            () => {
-                const dialogs = document.querySelectorAll(
-                    '.dialog, .modal, .popup, [role="dialog"], [role="alertdialog"], '
-                    + '.layui-layer-dialog, .layui-layer, .ui-dialog');
-                const containers = dialogs.length > 0 ? Array.from(dialogs) : [document.body];
-                for (const d of containers) {
-                    const btns = d.querySelectorAll('button, a, span, div');
-                    for (const btn of btns) {
-                        const t = (btn.textContent || '').trim();
-                        if (t === '关闭') { btn.click(); return; }
-                    }
-                }
-            }
-        """)
-        time.sleep(1)
-        page.keyboard.press("Escape")
-        time.sleep(1)
+        # 关闭弹窗（统一 dismiss 逻辑）
+        from .query import dismiss_dialogs
+        dismiss_dialogs(page)
         return True
 
     def run(self):
