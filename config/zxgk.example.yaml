@@ -24,6 +24,10 @@ waf:
 screenshots:
   enabled: true
 
+# --- 存储（截图: file=仅路径 blob=数据库二进制 both=两者） ---
+storage:
+  screenshots: file
+
 # --- 子站配置 ---
 subsites:
   zhixing:

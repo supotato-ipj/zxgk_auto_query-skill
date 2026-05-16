@@ -4,6 +4,7 @@
 
 set -u
 WORKSPACE="$(cd "$(dirname "$0")" && pwd)"
+VENV="$WORKSPACE/venv"
 FAIL=0
 
 green() { echo -e "\033[32m$1\033[0m"; }
@@ -24,6 +25,14 @@ for py in zxgk_query.py writers/feishu.py diagnose_subsites.py; do
         FAIL=1
     fi
 done
+for py in zxgk/__init__.py zxgk/config.py zxgk/browser.py zxgk/captcha.py zxgk/query.py zxgk/screenshot.py zxgk/backfill.py zxgk/runner.py zxgk/cli.py zxgk/exceptions.py; do
+    if python3 -c "import py_compile; py_compile.compile('$py', doraise=True)" 2>/dev/null; then
+        green "  $py ✅"
+    else
+        red "  $py ❌"
+        FAIL=1
+    fi
+done
 
 # ── 2. Shell 语法检查 ──
 echo ""
@@ -36,6 +45,16 @@ for sh in cron_daily_query.sh smoke_test.sh; do
         FAIL=1
     fi
 done
+
+# ── 2b. zxgk 包可导入性检查 ──
+echo ""
+echo "[2b] zxgk 包导入检查"
+if "$VENV/bin/python" -c "from zxgk.cli import main; from zxgk.browser import BrowserManager; from zxgk.query import dismiss_dialogs" 2>/dev/null; then
+    green "  zxgk 包导入 ✅"
+else
+    red "  zxgk 包导入失败 ❌"
+    FAIL=1
+fi
 
 # ── 3. 配置文件 YAML 格式验证 ──
 echo ""
@@ -89,7 +108,6 @@ fi
 # ── 6. venv 检查 ──
 echo ""
 echo "[6] venv 依赖"
-VENV="$WORKSPACE/venv"
 if [ -d "$VENV" ]; then
     green "  venv: 存在 ✅"
     if "$VENV/bin/python" -c "import playwright, yaml, requests" 2>/dev/null; then

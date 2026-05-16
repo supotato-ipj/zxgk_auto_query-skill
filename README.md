@@ -37,6 +37,7 @@ bash cron_daily_query.sh
 | 方式 | 命令 |
 |------|------|
 | SQLite（默认） | `python3 -m writers.sqlite --input batch.json` |
+| SQLite（BLOB 截图） | `python3 -m writers.sqlite --input batch.json --store-screenshots blob` |
 | Excel | `python3 -m writers.excel --input batch.json` |
 | 飞书自动建表 | `python3 -m writers.feishu_build --input batch.json --app-token xxx` |
 | 飞书已有表 | `python3 -m writers.feishu --input batch.json --subsite zhixing` |

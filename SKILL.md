@@ -229,7 +229,7 @@ python3 zxgk_query.py --company "XX公司" --subsite zhixing --mode text-only --
 | `setup.sh` | 首次安装 — 依赖全自动装好 |
 | `zxgk_query.py` | 主 CLI — 查询/截图/Phase B |
 | `cron_daily_query.sh` | 编排脚本 — Phase A + B 全流程 |
-| `writers/sqlite.py` | 本地 SQLite 储存（始终写入，零依赖） |
+| `writers/sqlite.py` | 本地 SQLite 储存（始终写入，零依赖，支持 `--store-screenshots blob` 将截图存为 BLOB） |
 | `writers/feishu.py` | 飞书读写 — raw表写入/去重/交叉匹配/截图上传（可选） |
 | `writers/` | 可插拔储存层（SQLite/Excel/飞书已有表/飞书自建） |
 | `diagnose_subsites.py` | DOM 诊断 |

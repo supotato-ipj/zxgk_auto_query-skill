@@ -8,96 +8,40 @@ Requires: captcha-solver on port 8001
 import json
 import logging
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import yaml
+from zxgk.browser import BrowserManager, _cleanup_orphans
+from zxgk.config import load_config
+from zxgk.query import dismiss_dialogs
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("diagnose")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
-def load_subsites():
-    """从 config/zxgk.yaml 加载子站配置"""
-    config_path = SCRIPT_DIR / "config" / "zxgk.yaml"
-    if config_path.exists():
-        with open(config_path) as f:
-            raw = yaml.safe_load(f) or {}
-        yaml_subsites = raw.get("subsites", {})
-        subsites = {}
-        for key, info in yaml_subsites.items():
-            subsites[key] = {
-                "name": info.get("name", key),
-                "css": info.get("css_selector", ""),
-                "extra_wait": info.get("extra_wait_sec", 5),
-            }
-        if subsites:
-            return subsites
+
+def load_subsites(config):
+    """从已加载的配置中提取子站诊断信息"""
+    yaml_subsites = config.get("subsites", {})
+    subsites = {}
+    for key, info in yaml_subsites.items():
+        subsites[key] = {
+            "name": info.get("name", key),
+            "css": info.get("css_selector", ""),
+            "extra_wait": info.get("extra_wait_sec", 5),
+        }
+    if subsites:
+        return subsites
     # fallback
     return {
         "zhixing": {"name": "被执行人", "css": "div.bzxrxx_nor", "extra_wait": 5},
         "shixin":  {"name": "失信被执行人", "css": "div.sxbzxr_nor",  "extra_wait": 5},
         "xgl":     {"name": "限制消费人员", "css": "div.xzxfry_nor",  "extra_wait": 5},
     }
-
-SUBSITES = load_subsites()
-
-BROWSER_ARGS = [
-    "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
-    "--disable-blink-features=AutomationControlled",
-    "--disable-features=IsolateOrigins,site-per-process",
-    "--disable-web-security",
-]
-
-def _cleanup_orphans():
-    """清理所有 Playwright 启动的 Chromium 进程（含子进程）"""
-    patterns = [
-        "playwright_chromiumdev_profile",
-        "chromium-browser.*--type=",
-    ]
-    for pattern in patterns:
-        try:
-            subprocess.run(
-                ["pkill", "-f", pattern],
-                capture_output=True, text=True, timeout=5
-            )
-        except Exception:
-            pass
-    time.sleep(1)
-
-def _dismiss_overlay(page):
-    """在弹窗容器内查找并点击 确定/关闭 按钮"""
-    page.evaluate("""
-    () => {
-        const dialogs = document.querySelectorAll(
-            '.dialog, .modal, .popup, [role="dialog"], [role="alertdialog"], '
-            + '.layui-layer-dialog, .layui-layer, .ui-dialog'
-        );
-        const containers = dialogs.length > 0 ? Array.from(dialogs) : [document.body];
-        for (const d of containers) {
-            const btns = d.querySelectorAll('button, input[type="button"], a.btn');
-            for (const btn of btns) {
-                const t = (btn.textContent || '').trim();
-                if (t === '确定') { btn.click(); }
-            }
-            for (const btn of btns) {
-                const t = (btn.textContent || '').trim();
-                if (t === '关闭') { btn.click(); }
-            }
-        }
-    }
-    """)
-
-def _dismiss_dialogs(page, max_iterations=8):
-    """轮询关闭页面上可能出现的弹窗"""
-    for _ in range(max_iterations):
-        _dismiss_overlay(page)
-        time.sleep(0.5)
 
 
 def probe_subsite(page, name, info):
@@ -275,7 +219,7 @@ def probe_subsite(page, name, info):
         return result
 
     # 等待并关闭弹窗
-    _dismiss_dialogs(page)
+    dismiss_dialogs(page)
     try:
         page.wait_for_load_state("networkidle", timeout=15000)
     except Exception:
@@ -331,64 +275,41 @@ def probe_subsite(page, name, info):
 
 
 def main():
-    for k in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
-              "ALL_PROXY", "all_proxy"]:
-        os.environ.pop(k, None)
-
-    # 清理残留 Chromium 进程
-    _cleanup_orphans()
+    config = load_config()
+    subsites = load_subsites(config)
 
     all_results = {}
-    pw = sync_playwright().start()
-    browser = pw.chromium.launch(
-        executable_path="/usr/bin/chromium-browser",
-        headless=True,
-        args=BROWSER_ARGS,
-    )
-    context = browser.new_context(
-        viewport={"width": 1920, "height": 1080},
-        locale="zh-CN",
-    )
-    page = context.new_page()
-    Stealth(
-        navigator_platform_override="Linux x86_64",
-        navigator_languages_override=("zh-CN", "zh", "en-US", "en"),
-        navigator_vendor_override="Google Inc.",
-        webgl_vendor_override="Intel Inc.",
-        webgl_renderer_override="Intel Iris OpenGL Engine",
-    ).apply_stealth_sync(page)
+    with BrowserManager(config) as bm:
+        page = bm.page
 
-    for key, info in SUBSITES.items():
-        try:
-            logger.info("\n\n========== %s ==========", key)
-            result = probe_subsite(page, key, info)
-            all_results[key] = result
-            # Print key findings immediately
-            qt = result.get("query_test", {})
-            logger.info("结果: rows=%d, cols=%d, no_result=%s, captcha_err=%s",
-                        qt.get("row_count", 0), qt.get("col_count", 0),
-                        qt.get("no_result"), qt.get("captcha_error"))
-            if qt.get("samples"):
-                logger.info("第1行列: %s", qt["samples"][0])
-            if qt.get("showDetail_onclick"):
-                logger.info("showDetail onclick: %s", qt["showDetail_onclick"])
-            tables = result.get("tables", [])
-            for t in tables:
-                if t.get("id") == "_column_info":
-                    logger.info("默认列: %s", t.get("headers"))
-            for t in tables:
-                if t["id"] in ("tb-1", "tb-2") and t["exists"]:
-                    logger.info("%s: exists=True, rows=%d", t["id"], t["rowCount"])
-        except Exception as e:
-            logger.error("%s 诊断异常: %s", key, e, exc_info=True)
-            all_results[key] = {"error": str(e)}
+        for key, info in subsites.items():
+            try:
+                logger.info("\n\n========== %s ==========", key)
+                result = probe_subsite(page, key, info)
+                all_results[key] = result
+                # Print key findings immediately
+                qt = result.get("query_test", {})
+                logger.info("结果: rows=%d, cols=%d, no_result=%s, captcha_err=%s",
+                            qt.get("row_count", 0), qt.get("col_count", 0),
+                            qt.get("no_result"), qt.get("captcha_error"))
+                if qt.get("samples"):
+                    logger.info("第1行列: %s", qt["samples"][0])
+                if qt.get("showDetail_onclick"):
+                    logger.info("showDetail onclick: %s", qt["showDetail_onclick"])
+                tables = result.get("tables", [])
+                for t in tables:
+                    if t.get("id") == "_column_info":
+                        logger.info("默认列: %s", t.get("headers"))
+                for t in tables:
+                    if t["id"] in ("tb-1", "tb-2") and t["exists"]:
+                        logger.info("%s: exists=True, rows=%d", t["id"], t["rowCount"])
+            except Exception as e:
+                logger.error("%s 诊断异常: %s", key, e, exc_info=True)
+                all_results[key] = {"error": str(e)}
 
-        # 跨子站清理弹窗，等待页面稳定
-        _dismiss_dialogs(page)
-        time.sleep(2)
-
-    browser.close()
-    pw.stop()
+            # 跨子站清理弹窗，等待页面稳定
+            dismiss_dialogs(page)
+            time.sleep(2)
 
     # 清理残留
     _cleanup_orphans()
