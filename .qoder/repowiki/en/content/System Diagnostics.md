@@ -6,6 +6,7 @@
 - [SKILL.md](file://SKILL.md)
 - [diagnose_subsites.py](file://diagnose_subsites.py)
 - [smoke_test.sh](file://smoke_test.sh)
+- [test_basics.py](file://test_basics.py)
 - [cron_daily_query.sh](file://cron_daily_query.sh)
 - [setup.sh](file://setup.sh)
 - [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
@@ -14,6 +15,9 @@
 - [zxgk/browser.py](file://zxgk/browser.py)
 - [zxgk/query.py](file://zxgk/query.py)
 - [zxgk/config.py](file://zxgk/config.py)
+- [zxgk/backfill.py](file://zxgk/backfill.py)
+- [zxgk/async_primitives.py](file://zxgk/async_primitives.py)
+- [zxgk/async_runner.py](file://zxgk/async_runner.py)
 - [captcha-solver/main.py](file://captcha-solver/main.py)
 - [captcha-solver/API.md](file://captcha-solver/API.md)
 - [captcha-solver/Dockerfile](file://captcha-solver/Dockerfile)
@@ -23,11 +27,11 @@
 
 ## Update Summary
 **Changes Made**
-- Updated diagnose_subsites.py section to reflect the completely rewritten diagnostic utility
-- Added new framework components: BrowserManager, centralized browser lifecycle management
-- Enhanced popup detection capabilities with shared utility functions
-- Updated architecture diagrams to show centralized framework components
-- Revised troubleshooting procedures to leverage new framework capabilities
+- Added comprehensive baseline smoke testing with new test_basics.py module
+- Enhanced configuration validation coverage for load_config(), load_company_list(), and parse_chinese_date()
+- Expanded module importability testing for dismiss functions, backfill utilities, and async primitives
+- Integrated test_basics.py into the diagnostic toolkit alongside existing smoke_test.sh
+- Updated troubleshooting procedures to leverage comprehensive baseline testing
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,10 +46,10 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document provides a comprehensive guide to system diagnostics for health checks and troubleshooting workflows. It explains how to verify DOM structure across the three subsites using the newly rewritten diagnostic utility, monitor performance, and apply systematic troubleshooting approaches. The document covers the centralized BrowserManager framework, popup detection capabilities, and shared utility functions that provide comprehensive site health monitoring. It also documents the diagnose_subsites.py utility for subsite health assessment and smoke_test.sh for comprehensive system validation, along with relationships to browser automation, configuration validation, performance bottleneck identification, network connectivity issues, and component dependency problems.
+This document provides a comprehensive guide to system diagnostics for health checks and troubleshooting workflows. It explains how to verify DOM structure across the three subsites using the newly rewritten diagnostic utility, monitor performance, and apply systematic troubleshooting approaches. The document covers the centralized BrowserManager framework, popup detection capabilities, and shared utility functions that provide comprehensive site health monitoring. It also documents the diagnose_subsites.py utility for subsite health assessment, smoke_test.sh for comprehensive system validation, and the new test_basics.py module for baseline smoke testing, along with relationships to browser automation, configuration validation, performance bottleneck identification, network connectivity issues, and component dependency problems.
 
 ## Project Structure
-The project centers around a daily query pipeline that automates browser-driven searches across three subsites, validates configurations, and writes results to local storage and optionally to a cloud platform. The newly rewritten diagnostic utility leverages centralized framework components for robust site health monitoring.
+The project centers around a daily query pipeline that automates browser-driven searches across three subsites, validates configurations, and writes results to local storage and optionally to a cloud platform. The newly rewritten diagnostic utility leverages centralized framework components for robust site health monitoring, complemented by comprehensive baseline testing through the new test_basics.py module.
 
 ```mermaid
 graph TB
@@ -57,35 +61,39 @@ end
 subgraph "Diagnostic Utilities"
 D["diagnose_subsites.py"]
 E["smoke_test.sh"]
-F["cron_daily_query.sh"]
-G["setup.sh"]
+F["test_basics.py"]
+G["cron_daily_query.sh"]
+H["setup.sh"]
 end
 subgraph "Configuration"
-H["config/zxgk.yaml"]
-I["config/companies.example.txt"]
+I["config/zxgk.yaml"]
+J["config/companies.example.txt"]
 end
 subgraph "Browser Automation"
-J["Playwright (Chromium)"]
+K["Playwright (Chromium)"]
 end
 subgraph "OCR Service"
-K["captcha-solver/main.py"]
-L["captcha-solver/API.md"]
-M["captcha-solver/Dockerfile"]
+L["captcha-solver/main.py"]
+M["captcha-solver/API.md"]
+N["captcha-solver/Dockerfile"]
 end
 subgraph "Storage Writers"
-N["writers/sqlite.py"]
-O["writers/feishu.py"]
+O["writers/sqlite.py"]
+P["writers/feishu.py"]
 end
 D --> A
 D --> B
 D --> C
-E --> H
 E --> I
-E --> K
-F --> J
-F --> K
-F --> N
-F --> O
+E --> J
+E --> L
+F --> C
+F --> B
+F --> L
+G --> K
+G --> L
+G --> O
+G --> P
 ```
 
 **Diagram sources**
@@ -94,6 +102,7 @@ F --> O
 - [zxgk/query.py:34-51](file://zxgk/query.py#L34-L51)
 - [zxgk/config.py:49-70](file://zxgk/config.py#L49-L70)
 - [smoke_test.sh:124-131](file://smoke_test.sh#L124-L131)
+- [test_basics.py:13-14](file://test_basics.py#L13-L14)
 - [cron_daily_query.sh:43-96](file://cron_daily_query.sh#L43-L96)
 - [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
 - [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
@@ -108,6 +117,7 @@ F --> O
 - **load_config**: Centralized configuration loading with environment variable expansion and validation.
 - **diagnose_subsites.py**: Rewritten diagnostic utility leveraging framework components for comprehensive DOM structure analysis, query testing, and popup detection.
 - **smoke_test.sh**: Validates Python/Shell syntax, configuration YAML, companies list, environment variables, virtual environment dependencies, OCR service health, and latest batch JSON format.
+- **test_basics.py**: Comprehensive baseline smoke testing module providing configuration loading validation, company list parsing verification, date utilities testing, and module importability checks.
 - **cron_daily_query.sh**: Orchestrates the full pipeline with centralized browser management and popup handling.
 - **setup.sh**: Installs OS-level prerequisites, creates and populates a Python virtual environment, installs Playwright Chromium, configures lark-cli, and optionally installs the OCR service locally or remotely.
 - **Configuration files**: Define subsite selectors, OCR server endpoint, browser viewport, WAF parameters, screenshots behavior, storage options, and Feishu table mappings.
@@ -118,6 +128,7 @@ F --> O
 - [zxgk/browser.py:58-190](file://zxgk/browser.py#L58-L190)
 - [zxgk/query.py:34-51](file://zxgk/query.py#L34-L51)
 - [smoke_test.sh:16-154](file://smoke_test.sh#L16-L154)
+- [test_basics.py:16-89](file://test_basics.py#L16-L89)
 - [cron_daily_query.sh:43-96](file://cron_daily_query.sh#L43-L96)
 - [setup.sh:1-150](file://setup.sh#L1-L150)
 - [config/zxgk.yaml:7-96](file://config/zxgk.yaml#L7-L96)
@@ -132,16 +143,24 @@ The system integrates centralized browser management with OCR validation and sto
 - OCR service availability and response quality
 - Configuration correctness and environment readiness
 - Storage integrity and optional cloud synchronization
+- Comprehensive baseline testing through test_basics.py module
 
 ```mermaid
 sequenceDiagram
 participant Admin as "Administrator"
 participant Script as "smoke_test.sh"
+participant Basics as "test_basics.py"
 participant Config as "config/zxgk.yaml"
 participant OCR as "captcha-solver"
 participant Subsites as "diagnose_subsites.py"
 participant BM as "BrowserManager"
 participant Dialogs as "dismiss_dialogs"
+Admin->>Basics : Run baseline tests
+Basics->>Config : Validate load_config()
+Basics->>Config : Validate load_company_list()
+Basics->>Config : Validate parse_chinese_date()
+Basics->>Dialogs : Test dismiss functions importable
+Basics->>OCR : Test async imports (optional)
 Admin->>Script : Run smoke tests
 Script->>Config : Validate YAML and subsites
 Script->>OCR : GET /health
@@ -162,12 +181,42 @@ Subsites-->>Admin : JSON diagnostics and summary
 
 **Diagram sources**
 - [smoke_test.sh:124-131](file://smoke_test.sh#L124-L131)
+- [test_basics.py:91-113](file://test_basics.py#L91-L113)
 - [diagnose_subsites.py:282-283](file://diagnose_subsites.py#L282-L283)
 - [zxgk/browser.py:58-104](file://zxgk/browser.py#L58-L104)
 - [zxgk/query.py:34-51](file://zxgk/query.py#L34-L51)
 - [captcha-solver/main.py:107-109](file://captcha-solver/main.py#L107-L109)
 
 ## Detailed Component Analysis
+
+### test_basics.py: Comprehensive Baseline Smoke Testing
+**New** Dedicated module providing comprehensive baseline smoke testing for core functionality without browser or OCR dependencies.
+
+Key capabilities:
+- **Configuration Loading Validation**: Tests load_config() for expected dictionary structure and required keys.
+- **Company List Parsing Verification**: Validates load_company_list() returns proper list of non-empty strings.
+- **Date Utilities Testing**: Tests parse_chinese_date() for correct timestamp conversion and edge case handling.
+- **Module Importability Checks**: Verifies dismiss_overlay/dismiss_dialogs functions import correctly with proper signatures.
+- **Backfill Module Testing**: Validates ScreenshotBackfiller importability without side effects.
+- **Async Primitives Validation**: Tests async module imports (RateGate, WafCircuitBreaker, AsyncBatchRunner) with optional environment handling.
+
+```mermaid
+flowchart TD
+Start(["Start test_basics.py"]) --> LoadConfig["test_load_config()<br/>Validate config structure and keys"]
+LoadConfig --> LoadCompanies["test_load_company_list()<br/>Validate company list format"]
+LoadCompanies --> ParseDate["test_parse_chinese_date()<br/>Test date parsing and edge cases"]
+ParseDate --> DismissFuncs["test_dismiss_functions_importable()<br/>Verify function signatures"]
+DismissFuncs --> BackfillMod["test_backfill_importable()<br/>Validate backfill module"]
+BackfillMod --> AsyncMods["test_async_importable()<br/>Test async module imports (optional)"]
+AsyncMods --> Results["Aggregate test results"]
+Results --> End(["End with pass/fail summary"])
+```
+
+**Diagram sources**
+- [test_basics.py:16-89](file://test_basics.py#L16-L89)
+
+**Section sources**
+- [test_basics.py:16-89](file://test_basics.py#L16-L89)
 
 ### diagnose_subsites.py: Rewritten Diagnostic Utility with Framework Integration
 **Updated** Completely rewritten to leverage centralized framework components for comprehensive site health monitoring.
@@ -363,13 +412,18 @@ Setup --> OCRInstall["Optional OCR install"]
 - [setup.sh:27-124](file://setup.sh#L27-L124)
 
 ## Dependency Analysis
-**Updated** Enhanced with centralized framework components and shared utilities.
+**Updated** Enhanced with centralized framework components, shared utilities, and comprehensive baseline testing.
 
 - **diagnose_subsites.py** depends on:
   - **Centralized Framework**: BrowserManager, dismiss_dialogs, load_config from zxgk package.
   - **Playwright/Chromium** for browser automation.
   - **captcha-solver** for OCR assistance during search attempts.
   - **Requests** for OCR API calls.
+- **test_basics.py** depends on:
+  - **Configuration Module**: load_config, load_company_list, parse_chinese_date from zxgk.config.
+  - **Query Module**: dismiss_overlay, dismiss_dialogs from zxgk.query.
+  - **Backfill Module**: ScreenshotBackfiller from zxgk.backfill.
+  - **Async Modules**: async_primitives and async_runner (optional).
 - **BrowserManager** depends on:
   - **Playwright** for browser automation.
   - **playwright-stealth** for anti-detection measures.
@@ -390,6 +444,14 @@ graph TB
 DS["diagnose_subsites.py"] --> BM["BrowserManager (zxgk/browser.py)"]
 DS --> DD["dismiss_dialogs (zxgk/query.py)"]
 DS --> LC["load_config (zxgk/config.py)"]
+TB["test_basics.py"] --> LC
+TB --> DC["load_company_list (zxgk/config.py)"]
+TB --> PC["parse_chinese_date (zxgk/config.py)"]
+TB --> DO["dismiss_overlay (zxgk/query.py)"]
+TB --> DD
+TB --> SB["ScreenshotBackfiller (zxgk/backfill.py)"]
+TB --> AP["async_primitives (zxgk/async_primitives.py)"]
+TB --> AR["async_runner (zxgk/async_runner.py)"]
 BM --> PW["Playwright/Chromium"]
 BM --> PS["playwright-stealth"]
 DD --> DIALOGS[".dialog, .modal, .popup selectors"]
@@ -408,6 +470,7 @@ WSQL --> SQLITE["SQLite"]
 
 **Diagram sources**
 - [diagnose_subsites.py:17-20](file://diagnose_subsites.py#L17-L20)
+- [test_basics.py:13-14](file://test_basics.py#L13-L14)
 - [zxgk/browser.py:8-12](file://zxgk/browser.py#L8-L12)
 - [zxgk/query.py:8-31](file://zxgk/query.py#L8-L31)
 - [smoke_test.sh:43-60](file://smoke_test.sh#L43-L60)
@@ -418,6 +481,7 @@ WSQL --> SQLITE["SQLite"]
 
 **Section sources**
 - [diagnose_subsites.py:17-20](file://diagnose_subsites.py#L17-L20)
+- [test_basics.py:13-14](file://test_basics.py#L13-L14)
 - [zxgk/browser.py:8-12](file://zxgk/browser.py#L8-L12)
 - [zxgk/query.py:8-31](file://zxgk/query.py#L8-L31)
 - [smoke_test.sh:43-60](file://smoke_test.sh#L43-L60)
@@ -427,7 +491,7 @@ WSQL --> SQLITE["SQLite"]
 - [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
 
 ## Performance Considerations
-**Updated** Enhanced with centralized browser management and popup handling.
+**Updated** Enhanced with centralized browser management, popup handling, and comprehensive baseline testing.
 
 - **Centralized Browser Management**: BrowserManager reduces resource overhead through shared browser instances and automatic cleanup.
 - **Popup Detection Efficiency**: Shared dismiss_dialogs utility prevents popup interference between subsites, reducing re-navigation attempts.
@@ -436,19 +500,23 @@ WSQL --> SQLITE["SQLite"]
 - **Network stability**: Frequent retries and timeouts are configured in the pipeline; verify network connectivity to the target portal and OCR service.
 - **Storage throughput**: SQLite writes are synchronous; consider disabling screenshot BLOB storage if disk I/O becomes a bottleneck.
 - **Pagination and result volume**: Large result sets increase DOM parsing time; validate table scanning logic and limit unnecessary waits.
+- **Baseline Testing Overhead**: test_basics.py provides fast validation without browser/OCR dependencies, enabling quick regression testing.
 
 ## Troubleshooting Guide
 
 ### Health Check Procedures
-**Updated** Enhanced with centralized framework components.
+**Updated** Enhanced with comprehensive baseline testing capabilities.
 
+- **Run baseline tests** using test_basics.py to validate core functionality without browser or OCR dependencies.
 - **Run smoke tests** to validate syntax, configuration, environment, and OCR service readiness.
 - **Use diagnose_subsites.py** to probe each subsite's DOM structure, form fields, tables, pagination, and search handler using centralized BrowserManager.
 - **Verify OCR service health** and responsiveness.
 - **Monitor BrowserManager lifecycle** for proper cleanup and resource management.
 - **Check popup detection** across subsites using dismiss_dialogs utility.
+- **Validate configuration loading** with specific tests for load_config(), load_company_list(), and parse_chinese_date().
 
 **Section sources**
+- [test_basics.py:16-89](file://test_basics.py#L16-L89)
 - [smoke_test.sh:17-173](file://smoke_test.sh#L17-L173)
 - [diagnose_subsites.py:277-350](file://diagnose_subsites.py#L277-L350)
 - [zxgk/browser.py:58-190](file://zxgk/browser.py#L58-L190)
@@ -456,8 +524,19 @@ WSQL --> SQLITE["SQLite"]
 - [captcha-solver/main.py:107-109](file://captcha-solver/main.py#L107-L109)
 
 ### Common Issues and Resolution Strategies
-**Updated** Enhanced with framework-specific troubleshooting.
+**Updated** Enhanced with framework-specific troubleshooting and comprehensive baseline testing.
 
+- **Configuration loading failures**:
+  - Use test_basics.py to isolate load_config() issues.
+  - Verify YAML syntax and required keys are present.
+  - Check environment variable expansion in configuration.
+- **Company list parsing errors**:
+  - Use test_basics.py to validate load_company_list() functionality.
+  - Ensure companies.txt follows expected format (one company per line).
+  - Check for comment lines and empty entries.
+- **Date parsing failures**:
+  - Use test_basics.py to test parse_chinese_date() with various formats.
+  - Validate timestamp ranges and edge cases.
 - **OCR service unavailable**:
   - Confirm service health endpoint and port binding.
   - If Docker is used, ensure the container is running and model initialization completed.
@@ -482,6 +561,7 @@ WSQL --> SQLITE["SQLite"]
   - Reduce concurrency, disable screenshots, or switch to file-based screenshot storage.
 
 **Section sources**
+- [test_basics.py:16-89](file://test_basics.py#L16-L89)
 - [cron_daily_query.sh:43-96](file://cron_daily_query.sh#L43-L96)
 - [setup.sh:54-124](file://setup.sh#L54-L124)
 - [writers/feishu.py:556-591](file://writers/feishu.py#L556-L591)
@@ -489,16 +569,19 @@ WSQL --> SQLITE["SQLite"]
 - [zxgk/query.py:34-51](file://zxgk/query.py#L34-L51)
 
 ### Systematic Troubleshooting Approaches
-**Updated** Enhanced with framework integration.
+**Updated** Enhanced with comprehensive baseline testing and framework integration.
 
+- **Start with baseline testing**: Run test_basics.py to validate core functionality before proceeding to complex diagnostics.
 - **Isolate components**: Test OCR service independently, then DOM probing with BrowserManager, then full pipeline with centralized management.
 - **Validate configuration**: Compare effective configuration against examples and ensure all required fields are present.
 - **Monitor framework lifecycle**: Track BrowserManager initialization, cleanup, and error handling.
 - **Test popup detection**: Verify dismiss_dialogs utility works across all dialog types and subsites.
 - **Capture and review logs**: Monitor BrowserManager debug logs, popup detection traces, and script outputs.
 - **Reproduce with minimal steps**: Use single-subsite probing and basic search to narrow down issues.
+- **Progressive complexity**: Start with test_basics.py (no browser/OCR), then smoke_test.sh, then diagnose_subsites.py for comprehensive diagnostics.
 
 **Section sources**
+- [test_basics.py:91-113](file://test_basics.py#L91-L113)
 - [diagnose_subsites.py:277-350](file://diagnose_subsites.py#L277-L350)
 - [cron_daily_query.sh:112-154](file://cron_daily_query.sh#L112-L154)
 - [setup.sh:126-140](file://setup.sh#L126-L140)
@@ -506,15 +589,18 @@ WSQL --> SQLITE["SQLite"]
 - [zxgk/query.py:34-51](file://zxgk/query.py#L34-L51)
 
 ### Performance Bottleneck Identification
-**Updated** Enhanced with framework performance considerations.
+**Updated** Enhanced with framework performance considerations and comprehensive baseline testing.
 
 - **Measure OCR latency** and throughput under load.
 - **Profile BrowserManager lifecycle** and identify slow initialization/cleanup steps.
 - **Evaluate popup detection performance** and optimize dialog selectors.
 - **Monitor browser automation steps** and identify slow DOM scans.
 - **Assess storage write performance** and adjust screenshot storage mode.
+- **Baseline test performance**: Use test_basics.py to identify slow configuration loading or utility function performance issues.
+- **Module import timing**: Analyze import performance for async modules and backfill utilities.
 
 **Section sources**
+- [test_basics.py:78-89](file://test_basics.py#L78-L89)
 - [captcha-solver/main.py:120-141](file://captcha-solver/main.py#L120-L141)
 - [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
 - [zxgk/browser.py:58-104](file://zxgk/browser.py#L58-L104)
@@ -529,25 +615,29 @@ WSQL --> SQLITE["SQLite"]
 - [diagnose_subsites.py:334-336](file://diagnose_subsites.py#L334-L336)
 
 ### Component Dependency Problems
-**Updated** Enhanced with framework dependency management.
+**Updated** Enhanced with framework dependency management and comprehensive baseline testing.
 
 - **Ensure Playwright Chromium** is installed and up to date through BrowserManager.
 - **Verify Python virtual environment** contains required packages including playwright-stealth.
 - **Confirm lark-cli** is installed and authenticated for cloud storage operations.
 - **Check framework module imports** and ensure proper package structure.
+- **Validate async module dependencies**: Ensure playwright-stealth is available for async imports.
+- **Test module importability**: Use test_basics.py to verify all modules can be imported without side effects.
 
 **Section sources**
+- [test_basics.py:78-89](file://test_basics.py#L78-L89)
 - [setup.sh:27-45](file://setup.sh#L27-L45)
 - [setup.sh:112-124](file://setup.sh#L112-L124)
 - [writers/feishu.py:23-33](file://writers/feishu.py#L23-L33)
 - [zxgk/browser.py:8-12](file://zxgk/browser.py#L8-L12)
 
 ## Conclusion
-The diagnostic toolkit has been significantly enhanced with centralized framework components, providing comprehensive site health monitoring with detailed DOM structure analysis, query testing, and popup detection capabilities. The newly rewritten diagnose_subsites.py leverages BrowserManager for robust browser lifecycle management, dismiss_dialogs for popup handling, and centralized configuration loading. By combining targeted DOM probing, comprehensive system validation, and end-to-end orchestration through framework components, administrators can quickly identify configuration drift, OCR service issues, browser automation failures, and storage bottlenecks. The centralized approach ensures consistent behavior across all diagnostic operations and provides clear signals for remediation.
+The diagnostic toolkit has been significantly enhanced with comprehensive baseline testing capabilities through the new test_basics.py module, providing fast and reliable validation of core functionality without browser or OCR dependencies. The toolkit now offers layered testing approaches: baseline validation with test_basics.py, comprehensive system validation with smoke_test.sh, and detailed DOM probing with diagnose_subsites.py. The newly rewritten diagnose_subsites.py leverages BrowserManager for robust browser lifecycle management, dismiss_dialogs for popup handling, and centralized configuration loading. By combining targeted DOM probing, comprehensive system validation, baseline smoke testing, and end-to-end orchestration through framework components, administrators can quickly identify configuration drift, OCR service issues, browser automation failures, and storage bottlenecks. The centralized approach ensures consistent behavior across all diagnostic operations and provides clear signals for remediation.
 
 ## Appendices
 
 ### Quick Reference: Diagnostic Commands
+- **Run baseline tests**: python3 test_basics.py
 - **Run smoke tests**: bash smoke_test.sh
 - **Probe subsites**: python3 diagnose_subsites.py
 - **Single subsite test**: python3 zxgk_query.py --company "XX公司" --subsite zhixing --mode text-only --output /tmp/test.json
@@ -555,6 +645,7 @@ The diagnostic toolkit has been significantly enhanced with centralized framewor
 - **Monitor browser lifecycle**: Check BrowserManager logs for initialization and cleanup events
 
 **Section sources**
+- [test_basics.py:91-113](file://test_basics.py#L91-L113)
 - [smoke_test.sh:16-173](file://smoke_test.sh#L16-L173)
 - [diagnose_subsites.py:277-350](file://diagnose_subsites.py#L277-L350)
 - [README.md:63-77](file://README.md#L63-L77)

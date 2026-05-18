@@ -10,7 +10,7 @@ from pathlib import Path
 # Ensure project root on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from zxgk.config import load_config, load_company_list, parse_chinese_date
+from zxgk.config import build_batch_json, load_config, load_company_list, parse_chinese_date
 
 
 def test_load_config():
@@ -88,6 +88,69 @@ def test_async_importable():
         print(f"  ⚠️  async imports skipped: {e}")
 
 
+def test_build_batch_json():
+    """build_batch_json produces correct summary structure."""
+    results = {
+        "success": [
+            {"company": "公司A", "count": 3, "records": [{"viewId": "1"}]},
+        ],
+        "no_results": ["公司B"],
+        "blocked": ["公司C"],
+        "errors": [{"company": "公司D", "error": "timeout"}],
+    }
+    data = build_batch_json(results, "20260517-zhixing", "zhixing")
+    assert data["batch_id"] == "20260517-zhixing"
+    assert data["subsite"] == "zhixing"
+    assert data["summary"]["total_companies"] == 4
+    assert data["summary"]["success"] == 1
+    assert data["summary"]["waf_retry"] == 1
+    assert data["summary"]["total_records"] == 3
+    assert len(data["companies"]) == 4
+    print(f"  ✅ build_batch_json: correct summary (4 companies, 3 records)")
+
+
+def test_waf_circuit_breaker_persistence():
+    """ThreadWafCircuitBreaker writes/reads cooldown file."""
+    import os
+    import threading
+    import time
+    from zxgk.async_primitives import ThreadWafCircuitBreaker
+    cooldown_file = "/tmp/zxgk_waf_cooldown_until"
+
+    # Clean state
+    if os.path.exists(cooldown_file):
+        os.remove(cooldown_file)
+    b1 = ThreadWafCircuitBreaker(cooldown_sec=2)
+    assert b1.check() is True, "Should allow requests without cooldown"
+
+    # Trip in a thread and verify file is written during cooldown
+    file_written = threading.Event()
+
+    def trip_and_capture():
+        try:
+            b1.trip()
+        finally:
+            if os.path.exists(cooldown_file):
+                file_written.set()
+
+    t = threading.Thread(target=trip_and_capture)
+    t.start()
+    time.sleep(0.5)
+    assert os.path.exists(cooldown_file), "Cooldown file should be written during cooldown"
+    t.join()
+    print(f"  ✅ ThreadWafCircuitBreaker: persistence OK")
+
+
+def test_screenshot_cleanup_api():
+    """DetailScreenshot has cleanup_pending() and mark_uploaded()."""
+    from zxgk.screenshot import DetailScreenshot
+    import inspect
+    methods = {name for name, _ in inspect.getmembers(DetailScreenshot, inspect.isfunction)}
+    assert "cleanup_pending" in methods, "DetailScreenshot must have cleanup_pending()"
+    assert "mark_uploaded" in methods, "DetailScreenshot must have mark_uploaded()"
+    print(f"  ✅ DetailScreenshot.cleanup_pending / mark_uploaded: present")
+
+
 if __name__ == "__main__":
     print("test_basics.py — Baseline smoke tests\n")
     tests = [
@@ -97,6 +160,9 @@ if __name__ == "__main__":
         test_dismiss_functions_importable,
         test_backfill_importable,
         test_async_importable,
+        test_build_batch_json,
+        test_waf_circuit_breaker_persistence,
+        test_screenshot_cleanup_api,
     ]
     passed = 0
     failed = 0

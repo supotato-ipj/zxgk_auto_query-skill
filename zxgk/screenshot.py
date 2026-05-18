@@ -71,26 +71,50 @@ class DetailScreenshot:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.interval_sec = interval_sec
+        self._pending_cleanup = []  # Track files written for potential cleanup
 
     def capture_all(self, records):
         """批量截取详情弹窗，返回 {viewId: filepath} 映射"""
-        import time
-
         screenshot_map = {}
         for i, rec in enumerate(records):
             fp = self._capture_one(rec["viewId"], i + 1, rec.get("caseNo", ""))
             screenshot_map[rec["viewId"]] = fp
+            self._pending_cleanup.append(fp)  # Mark for cleanup after upload
             logger.info("截图 %d/%d: %s (viewId=%s)",
                         i + 1, len(records),
                         rec.get("caseNo", "?"), rec["viewId"])
-            time.sleep(self.interval_sec)
+            # Use Playwright's built-in wait instead of blocking time.sleep
+            self.page.wait_for_timeout(int(self.interval_sec * 1000))
         return screenshot_map
 
-    def _capture_one(self, view_id, index, case_no=""):
-        import time
+    def cleanup_pending(self):
+        """Delete all screenshots that haven't been claimed by upload success.
+        Call this after uploads complete to free disk space immediately."""
+        import os
+        for fp in self._pending_cleanup:
+            try:
+                if os.path.exists(fp):
+                    os.remove(fp)
+            except OSError as e:
+                logger.debug("cleanup screenshot %s: %s", fp, e)
+        self._pending_cleanup.clear()
 
+    def mark_uploaded(self, filepath):
+        """Remove a successfully uploaded screenshot from the cleanup list."""
+        if filepath in self._pending_cleanup:
+            self._pending_cleanup.remove(filepath)
+
+    def _capture_one(self, view_id, index, case_no=""):
         self.page.evaluate(f"showDetail({view_id})")
-        time.sleep(2)
+        # Wait for detail overlay to appear instead of fixed sleep
+        try:
+            self.page.wait_for_selector(
+                ".layui-layer,.dialog,.modal,[role='dialog']",
+                state="visible", timeout=3000
+            )
+        except Exception:
+            pass  # Fall back to fixed wait if selector not found
+            self.page.wait_for_timeout(2000)
 
         safe_case = re.sub(r"[（）()\s]", "_", case_no)[:30] if case_no else ""
         filename = f"detail_r{index}_{view_id}_{safe_case}.png"

@@ -14,14 +14,15 @@ Usage:
 import asyncio
 import concurrent.futures
 import json
+import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .async_primitives import ThreadRateGate, ThreadWafCircuitBreaker
 from .browser import BrowserManager
 from .captcha import CaptchaSolver
-from .config import logger
+from .config import build_batch_json, logger, save_batch_results
 from .exceptions import WafBlockedError
 from .query import QueryEngine
 from .screenshot import DetailScreenshot
@@ -61,6 +62,8 @@ class AsyncBatchRunner:
         self.cooldown_on_block = waf_cfg.get("cooldown_on_block_sec", 300)
         self.max_consecutive_fails = waf_cfg.get("max_consecutive_fails", 3)
         self.captcha_max_retries = waf_cfg.get("captcha_max_retries", 5)
+        self.empty_result_max_retries = waf_cfg.get("empty_result_max_retries", 2)
+        self.max_consecutive_empty = waf_cfg.get("max_consecutive_empty", 2)
         self.screenshot_interval = waf_cfg.get("screenshot_interval_sec", 2)
 
         self.output_dir = Path(out_cfg.get("dir", "output"))
@@ -68,7 +71,7 @@ class AsyncBatchRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
 
-        self.progress_file = self.output_dir / f".progress_{self.subsite}_{datetime.now().strftime('%Y%m%d')}.jsonl"
+        self.progress_file = self.output_dir / f".progress_{self.subsite}_{datetime.now().strftime('%Y%m%d')}_{os.getpid()}.jsonl"
         self.results = {"success": [], "no_results": [], "blocked": [], "errors": []}
 
         # Browser / solver / engine created in run()
@@ -97,83 +100,102 @@ class AsyncBatchRunner:
         self._bm.navigate(self.subsite)
 
         self._engine = QueryEngine(self._bm.page, self._solver,
-                                   self.captcha_max_retries, self.subsite)
+                                   self.captcha_max_retries, self.subsite,
+                                   self.empty_result_max_retries)
         self._screenshotter = DetailScreenshot(
             self._bm.page, self.screenshots_dir, self.screenshot_interval
         ) if self.screenshots_enabled else None
 
         consecutive_fails = 0
-
-        for idx, company in enumerate(pending):
-            # --- Thread-safe coordination ---
-            self._gate.acquire()
-
-            if not self._breaker.check():
-                logger.info("[%s] WAF 冷却中，跳过 %s", self.subsite, company)
-                self.results["blocked"].append(company)
-                continue
-
-            logger.info("[%s] [%d/%d] %s", self.subsite, idx + 1, len(pending), company)
-
-            try:
-                # --- Sync work runs in thread ---
-                records = self._query_one_company(company)
-            except WafBlockedError as e:
-                logger.warning("[%s] WAF 封禁: %s", self.subsite, e)
-                self.results["blocked"].append(company)
-                consecutive_fails += 1
-                self._breaker.trip()
-                continue
-            except Exception as e:
-                logger.error("[%s] %s: %s", self.subsite, company, e)
-                self.results["errors"].append({"company": company, "error": str(e)})
-                consecutive_fails += 1
-                continue
-
-            if records:
-                self.results["success"].append({
-                    "company": company, "count": len(records), "records": records,
-                })
-                consecutive_fails = 0
-                if self.feishu_enabled:
-                    self._write_feishu(records)
-                logger.info("[%s] [%d/%d] %s: ✅ %d条",
-                            self.subsite, idx + 1, len(pending), company, len(records))
-            else:
-                self.results["no_results"].append(company)
-                consecutive_fails = 0
-                logger.info("[%s] [%d/%d] %s: ❌ 无结果",
-                            self.subsite, idx + 1, len(pending), company)
-
-            self._mark_progress(company)
-
-            # 连续失败 → 重启浏览器
-            if consecutive_fails >= self.max_consecutive_fails:
-                logger.warning("[%s] 连续失败 %d 次，重启浏览器",
-                               self.subsite, consecutive_fails)
-                try:
-                    self._bm.close()
-                except Exception:
-                    pass
-                time.sleep(self.cooldown_on_block)
-                try:
-                    self._bm.launch()
-                    self._bm.navigate(self.subsite)
-                except Exception as e:
-                    logger.error("[%s] 浏览器重启失败: %s，跳过剩余公司", self.subsite, e)
-                    break
-                self._engine = QueryEngine(self._bm.page, self._solver,
-                                           self.captcha_max_retries, self.subsite)
-                if self._screenshotter:
-                    self._screenshotter = DetailScreenshot(
-                        self._bm.page, self.screenshots_dir, self.screenshot_interval
-                    )
-                consecutive_fails = 0
+        consecutive_empty = 0
 
         try:
-            self._bm.close()
-        except Exception:
-            pass
+            for idx, company in enumerate(pending):
+                # --- Thread-safe coordination ---
+                self._gate.acquire()
+
+                if not self._breaker.check():
+                    logger.info("[%s] WAF 冷却中，跳过 %s", self.subsite, company)
+                    self.results["blocked"].append(company)
+                    continue
+
+                logger.info("[%s] [%d/%d] %s", self.subsite, idx + 1, len(pending), company)
+
+                try:
+                    # --- Sync work runs in thread ---
+                    records = self._query_one_company(company)
+                except WafBlockedError as e:
+                    logger.warning("[%s] WAF 封禁: %s", self.subsite, e)
+                    self.results["blocked"].append(company)
+                    consecutive_fails += 1
+                    self._breaker.trip()
+                    continue
+                except Exception as e:
+                    logger.error("[%s] %s: %s", self.subsite, company, e)
+                    self.results["errors"].append({"company": company, "error": str(e)})
+                    consecutive_fails += 1
+                    continue
+
+                if records:
+                    self.results["success"].append({
+                        "company": company, "count": len(records), "records": records,
+                    })
+                    consecutive_fails = 0
+                    consecutive_empty = 0
+                    if self.feishu_enabled:
+                        self._write_feishu(records)
+                    logger.info("[%s] [%d/%d] %s: ✅ %d条",
+                                self.subsite, idx + 1, len(pending), company, len(records))
+                else:
+                    self.results["no_results"].append(company)
+                    consecutive_fails = 0
+                    consecutive_empty += 1
+                    if consecutive_empty >= self.max_consecutive_empty:
+                        logger.warning(
+                            "[%s] 连续 %d 家公司空结果，怀疑 WAF 静默拦截，重载页面",
+                            self.subsite, consecutive_empty,
+                        )
+                        self._bm.page.reload()
+                        time.sleep(5)
+                        consecutive_empty = 0
+                    logger.info("[%s] [%d/%d] %s: ❌ 无结果",
+                                self.subsite, idx + 1, len(pending), company)
+
+                self._mark_progress(company)
+
+                # 连续失败 → 重启浏览器
+                if consecutive_fails >= self.max_consecutive_fails:
+                    logger.warning("[%s] 连续失败 %d 次，重启浏览器",
+                                   self.subsite, consecutive_fails)
+                    try:
+                        self._bm.close()
+                    except Exception as e:
+                        logger.debug("[%s] browser close during restart: %s", self.subsite, e)
+                    time.sleep(self.cooldown_on_block)
+                    try:
+                        self._bm.launch()
+                        self._bm.navigate(self.subsite)
+                    except Exception as e:
+                        logger.error("[%s] 浏览器重启失败: %s，跳过剩余公司", self.subsite, e)
+                        break
+                    self._engine = QueryEngine(self._bm.page, self._solver,
+                                               self.captcha_max_retries, self.subsite,
+                                               self.empty_result_max_retries)
+                    if self._screenshotter:
+                        self._screenshotter = DetailScreenshot(
+                            self._bm.page, self.screenshots_dir, self.screenshot_interval
+                        )
+                    consecutive_fails = 0
+        finally:
+            # Ensure browser is closed and references are nulled for GC
+            try:
+                self._bm.close()
+            except Exception as e:
+                logger.debug("[%s] final browser close: %s", self.subsite, e)
+            self._bm = None
+            self._solver = None
+            self._engine = None
+            self._screenshotter = None
 
         self._save_summary()
         if self.output_path:
@@ -245,66 +267,12 @@ class AsyncBatchRunner:
         logger.info("[%s] 汇总已保存: %s", self.subsite, path)
 
     def _build_batch_json(self):
-        """构建合并 batch JSON。返回 dict"""
-        tz = timezone(timedelta(hours=8))
-        now = datetime.now(tz).isoformat()
-
-        companies = []
-        for c in self.results["success"]:
-            companies.append({
-                "company": c["company"],
-                "status": "ok",
-                "total": c["count"],
-                "records": c["records"],
-            })
-        for c in self.results["no_results"]:
-            companies.append({
-                "company": c if isinstance(c, str) else c["company"],
-                "status": "no_results",
-                "total": 0,
-                "records": [],
-            })
-        for c in self.results["blocked"]:
-            companies.append({
-                "company": c if isinstance(c, str) else c,
-                "status": "waf_blocked",
-                "error": "WAF 封禁",
-                "total": 0,
-                "records": [],
-            })
-        for c in self.results["errors"]:
-            companies.append({
-                "company": c["company"],
-                "status": "error",
-                "error": c.get("error", "未知错误"),
-                "total": 0,
-                "records": [],
-            })
-
-        total_records = sum(c["total"] for c in companies)
-        return {
-            "batch_id": self.batch_id,
-            "subsite": self.subsite,
-            "query_time": now,
-            "companies": companies,
-            "summary": {
-                "total_companies": len(companies),
-                "success": len(self.results["success"]),
-                "waf_retry": len(self.results["blocked"]),
-                "total_records": total_records,
-            },
-        }
+        """构建合并 batch JSON。委托给 config.build_batch_json"""
+        return build_batch_json(self.results, self.batch_id, self.subsite)
 
     def save_batch_json(self, output_path):
-        """写入合并 batch JSON 到 output_path"""
-        data = self._build_batch_json()
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        logger.info("[%s] 合并 JSON 已保存: %s (%d 家公司, %d 条记录)",
-                    self.subsite, output_path,
-                    data["summary"]["total_companies"],
-                    data["summary"]["total_records"])
+        """写入合并 batch JSON。委托给 config.save_batch_results"""
+        save_batch_results(self.results, self.batch_id, self.subsite, output_path)
 
 
 # ---------------------------------------------------------------------------

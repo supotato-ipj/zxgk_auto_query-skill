@@ -15,10 +15,12 @@ browser:
 # --- WAF 防护参数 ---
 waf:
   captcha_max_retries: 8
+  empty_result_max_retries: 2     # 空结果额外重试次数（防止假阴性）
   cooldown_on_block_sec: 300
   company_interval_sec: 30
   screenshot_interval_sec: 2
   max_consecutive_fails: 3
+  max_consecutive_empty: 2        # 连续空结果触发页面重载阈值
 
 # --- 截图（默认开启，--no-screenshots 可关闭） ---
 screenshots:

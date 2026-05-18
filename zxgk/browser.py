@@ -1,5 +1,6 @@
 """BrowserManager — Playwright 浏览器生命周期管理"""
 import atexit
+import os
 import signal
 import subprocess
 import sys
@@ -15,16 +16,35 @@ from .exceptions import SubsiteNavError, WafBlockedError
 # Globals (for signal / atexit cleanup)
 # ---------------------------------------------------------------------------
 _browser = None
+_browser_pid = None  # Track PID for precise process-group cleanup
 
 
 def _cleanup():
-    global _browser
+    global _browser, _browser_pid
     if _browser:
         try:
             _browser.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("global browser close failed: %s", e)
         _browser = None
+    if _browser_pid:
+        _kill_process_group(_browser_pid)
+        _browser_pid = None
+
+
+def _kill_process_group(pid):
+    """Kill a process and all its children by process group."""
+    try:
+        pgid = os.getpgid(pid)
+        os.killpg(pgid, signal.SIGTERM)
+        time.sleep(0.5)
+        # Force kill any survivors
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except OSError:
+            pass  # Process group already gone
+    except (OSError, ProcessLookupError) as e:
+        logger.debug("killpg(%d): %s", pid, e)
 
 
 def _signal_handler(signum, frame):
@@ -39,7 +59,7 @@ atexit.register(_cleanup)
 
 
 def _cleanup_orphans():
-    """清理所有 Playwright 启动的 Chromium 进程（含 GPU/Renderer 子进程）"""
+    """清理所有 Playwright 启动的 Chromium 残余进程（pkill 兜底）。"""
     patterns = [
         "playwright_chromiumdev_profile",
         "chromium-browser.*--type=",
@@ -50,8 +70,8 @@ def _cleanup_orphans():
                 ["pkill", "-f", pattern],
                 capture_output=True, text=True, timeout=5
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("pkill orphan cleanup '%s': %s", pattern, e)
     time.sleep(1)
 
 
@@ -65,6 +85,7 @@ class BrowserManager:
         self.viewport = {"width": vp[0], "height": vp[1]}
         self._playwright = None
         self._browser = None
+        self._browser_pid = None
         self._context = None
         self.page = None
 
@@ -82,6 +103,11 @@ class BrowserManager:
         if self.executable:
             launch_kwargs["executable_path"] = self.executable
         self._browser = self._playwright.chromium.launch(**launch_kwargs)
+        try:
+            self._browser_pid = self._browser.process.pid
+        except Exception as e:
+            logger.debug("get browser PID: %s", e)
+            self._browser_pid = None
         self._context = self._browser.new_context(
             viewport=self.viewport,
             locale="zh-CN",
@@ -99,19 +125,36 @@ class BrowserManager:
             webgl_renderer_override="Intel Iris OpenGL Engine",
         )
         stealth.apply_stealth_sync(self.page)
-        global _browser
+        global _browser, _browser_pid
         _browser = self._browser
-        logger.debug("浏览器已启动")
+        _browser_pid = self._browser_pid
+        logger.debug("浏览器已启动 (pid=%s)", self._browser_pid)
 
     def close(self):
-        global _browser
+        """有序关闭浏览器，先通过 PID 杀进程组，再调用 Playwright 的 close 作为兜底。"""
+        global _browser, _browser_pid
         _browser = None
-        for obj in (self._context, self._browser, self._playwright):
+        _browser_pid = None
+
+        # 1. Kill the browser process group now to prevent zombie accumulation
+        if self._browser_pid:
+            _kill_process_group(self._browser_pid)
+
+        # 2. Fallback: Playwright-level close for any remaining resources
+        for obj, name in ((self._context, "context"),
+                          (self._browser, "browser"),
+                          (self._playwright, "playwright")):
             if obj:
                 try:
                     obj.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("close %s: %s", name, e)
+
+        self._context = None
+        self._browser = None
+        self._playwright = None
+        self._browser_pid = None
+        self.page = None
         logger.debug("浏览器已关闭")
 
     def navigate(self, subsite_name):

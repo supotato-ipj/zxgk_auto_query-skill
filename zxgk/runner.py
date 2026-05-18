@@ -1,13 +1,14 @@
 """BatchRunner — 批量查询编排"""
 import json
+import os
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .browser import BrowserManager
 from .captcha import CaptchaSolver
-from .config import logger
+from .config import build_batch_json, logger, save_batch_results
 from .query import QueryEngine
 from .screenshot import DetailScreenshot
 
@@ -32,6 +33,8 @@ class BatchRunner:
         self.cooldown_on_block = waf_cfg.get("cooldown_on_block_sec", 300)
         self.max_consecutive_fails = waf_cfg.get("max_consecutive_fails", 3)
         self.captcha_max_retries = waf_cfg.get("captcha_max_retries", 5)
+        self.empty_result_max_retries = waf_cfg.get("empty_result_max_retries", 2)
+        self.max_consecutive_empty = waf_cfg.get("max_consecutive_empty", 2)
         self.screenshot_interval = waf_cfg.get("screenshot_interval_sec", 2)
 
         self.output_dir = Path(out_cfg.get("dir", "output"))
@@ -39,7 +42,7 @@ class BatchRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
 
-        self.progress_file = self.output_dir / f".progress_{datetime.now().strftime('%Y%m%d')}.jsonl"
+        self.progress_file = self.output_dir / f".progress_{datetime.now().strftime('%Y%m%d')}_{os.getpid()}.jsonl"
         self.results = {"success": [], "no_results": [], "blocked": [], "errors": []}
 
     def run(self, companies):
@@ -60,82 +63,100 @@ class BatchRunner:
         bm.launch()
         bm.navigate(self.subsite)
 
-        engine = QueryEngine(bm.page, solver, self.captcha_max_retries, self.subsite)
+        engine = QueryEngine(bm.page, solver, self.captcha_max_retries, self.subsite,
+                             self.empty_result_max_retries)
         screenshotter = DetailScreenshot(bm.page, self.screenshots_dir, self.screenshot_interval) \
             if self.screenshots_enabled else None
 
         consecutive_fails = 0
+        consecutive_empty = 0
 
-        for idx, (company, orig_idx) in enumerate(pending):
-            logger.info("[%d/%d] %s", idx + 1, len(pending), company)
+        try:
+            for idx, (company, orig_idx) in enumerate(pending):
+                logger.info("[%d/%d] %s", idx + 1, len(pending), company)
 
-            try:
-                # 每次查询前强制刷新验证码，避免跨公司复用的过期验证码
-                solver.refresh(bm.page)
-                logger.debug("已刷新验证码（避免跨公司复用导致 TTL 过期）")
+                try:
+                    # 每次查询前强制刷新验证码，避免跨公司复用的过期验证码
+                    solver.refresh(bm.page)
+                    logger.debug("已刷新验证码（避免跨公司复用导致 TTL 过期）")
 
-                records = engine.query(company)
+                    records = engine.query(company)
 
-                if records:
-                    screenshot_map = {}
+                    if records:
+                        screenshot_map = {}
+                        if screenshotter:
+                            screenshot_map = screenshotter.capture_all(records)
+
+                        self._save_result(company, records, screenshot_map)
+                        self.results["success"].append({
+                            "company": company, "count": len(records), "records": records,
+                        })
+                        consecutive_fails = 0
+                        consecutive_empty = 0
+
+                        if self.feishu_enabled:
+                            self._write_feishu(records, screenshot_map)
+
+                        logger.info("[%d/%d] %s: ✅ %d条", idx + 1, len(pending), company, len(records))
+                    else:
+                        self.results["no_results"].append(company)
+                        consecutive_fails = 0
+                        consecutive_empty += 1
+                        if consecutive_empty >= self.max_consecutive_empty:
+                            logger.warning(
+                                "连续 %d 家公司空结果，怀疑 WAF 静默拦截，重载页面",
+                                consecutive_empty,
+                            )
+                            bm.page.reload()
+                            time.sleep(5)
+                            consecutive_empty = 0
+                        logger.info("[%d/%d] %s: ❌ 无结果", idx + 1, len(pending), company)
+
+                    self._mark_progress(company)
+
+                except Exception as e:
+                    from .exceptions import WafBlockedError
+                    if isinstance(e, WafBlockedError):
+                        logger.warning("WAF 封禁: %s", e)
+                        self.results["blocked"].append(company)
+                        consecutive_fails += 1
+                        time.sleep(self.cooldown_on_block)
+                    else:
+                        logger.error("%s: %s", company, e)
+                        self.results["errors"].append({"company": company, "error": str(e)})
+                        consecutive_fails += 1
+
+                # 连续失败 → 重启浏览器
+                if consecutive_fails >= self.max_consecutive_fails:
+                    logger.warning("连续失败 %d 次，重启浏览器", consecutive_fails)
+                    try:
+                        bm.close()
+                    except Exception as e:
+                        logger.debug("browser close during restart: %s", e)
+                    time.sleep(self.cooldown_on_block)
+                    try:
+                        bm.launch()
+                        bm.navigate(self.subsite)
+                    except Exception as e:
+                        logger.error("浏览器重启失败: %s，跳过剩余公司", e)
+                        break
+                    engine = QueryEngine(bm.page, solver, self.captcha_max_retries, self.subsite)
                     if screenshotter:
-                        screenshot_map = screenshotter.capture_all(records)
-
-                    self._save_result(company, records, screenshot_map)
-                    self.results["success"].append({
-                        "company": company, "count": len(records), "records": records,
-                    })
+                        screenshotter = DetailScreenshot(
+                            bm.page, self.screenshots_dir, self.screenshot_interval
+                        )
                     consecutive_fails = 0
 
-                    if self.feishu_enabled:
-                        self._write_feishu(records, screenshot_map)
+                # 公司间冷却
+                if idx < len(pending) - 1:
+                    time.sleep(self.company_interval)
+        finally:
+            bm.close()
+            bm = None
+            solver = None
+            engine = None
+            screenshotter = None
 
-                    logger.info("[%d/%d] %s: ✅ %d条", idx + 1, len(pending), company, len(records))
-                else:
-                    self.results["no_results"].append(company)
-                    consecutive_fails = 0  # 无结果不是浏览器故障，重置计数
-                    logger.info("[%d/%d] %s: ❌ 无结果", idx + 1, len(pending), company)
-
-                self._mark_progress(company)
-
-            except Exception as e:
-                from .exceptions import WafBlockedError
-                if isinstance(e, WafBlockedError):
-                    logger.warning("WAF 封禁: %s", e)
-                    self.results["blocked"].append(company)
-                    consecutive_fails += 1
-                    time.sleep(self.cooldown_on_block)
-                else:
-                    logger.error("%s: %s", company, e)
-                    self.results["errors"].append({"company": company, "error": str(e)})
-                    consecutive_fails += 1
-
-            # 连续失败 → 重启浏览器
-            if consecutive_fails >= self.max_consecutive_fails:
-                logger.warning("连续失败 %d 次，重启浏览器", consecutive_fails)
-                try:
-                    bm.close()
-                except Exception:
-                    pass
-                time.sleep(self.cooldown_on_block)
-                try:
-                    bm.launch()
-                    bm.navigate(self.subsite)
-                except Exception as e:
-                    logger.error("浏览器重启失败: %s，跳过剩余公司", e)
-                    break
-                engine = QueryEngine(bm.page, solver, self.captcha_max_retries, self.subsite)
-                if screenshotter:
-                    screenshotter = DetailScreenshot(
-                        bm.page, self.screenshots_dir, self.screenshot_interval
-                    )
-                consecutive_fails = 0
-
-            # 公司间冷却
-            if idx < len(pending) - 1:
-                time.sleep(self.company_interval)
-
-        bm.close()
         self._save_summary()
         if self.output_path:
             self.save_batch_json(self.output_path)
@@ -212,63 +233,9 @@ class BatchRunner:
         logger.info("汇总已保存: %s", path)
 
     def _build_batch_json(self):
-        """构建合并 batch JSON。返回 dict"""
-        tz = timezone(timedelta(hours=8))
-        now = datetime.now(tz).isoformat()
-
-        companies = []
-        for c in self.results["success"]:
-            companies.append({
-                "company": c["company"],
-                "status": "ok",
-                "total": c["count"],
-                "records": c["records"],
-            })
-        for c in self.results["no_results"]:
-            companies.append({
-                "company": c if isinstance(c, str) else c["company"],
-                "status": "no_results",
-                "total": 0,
-                "records": [],
-            })
-        for c in self.results["blocked"]:
-            companies.append({
-                "company": c if isinstance(c, str) else c,
-                "status": "waf_blocked",
-                "error": "WAF 封禁",
-                "total": 0,
-                "records": [],
-            })
-        for c in self.results["errors"]:
-            companies.append({
-                "company": c["company"],
-                "status": "error",
-                "error": c.get("error", "未知错误"),
-                "total": 0,
-                "records": [],
-            })
-
-        total_records = sum(c["total"] for c in companies)
-
-        return {
-            "batch_id": self.batch_id,
-            "subsite": self.subsite,
-            "query_time": now,
-            "companies": companies,
-            "summary": {
-                "total_companies": len(companies),
-                "success": len(self.results["success"]),
-                "waf_retry": len(self.results["blocked"]),
-                "total_records": total_records,
-            },
-        }
+        """构建合并 batch JSON。委托给 config.build_batch_json"""
+        return build_batch_json(self.results, self.batch_id, self.subsite)
 
     def save_batch_json(self, output_path):
-        """写入合并 batch JSON 到 output_path"""
-        data = self._build_batch_json()
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        logger.info("合并 JSON 已保存: %s (%d 家公司, %d 条记录)",
-                    output_path, data["summary"]["total_companies"],
-                    data["summary"]["total_records"])
+        """写入合并 batch JSON。委托给 config.save_batch_results"""
+        save_batch_results(self.results, self.batch_id, self.subsite, output_path)

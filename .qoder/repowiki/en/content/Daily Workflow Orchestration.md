@@ -3,19 +3,19 @@
 <cite>
 **Referenced Files in This Document**
 - [cron_daily_query.sh](file://cron_daily_query.sh)
+- [zxgk_query.py](file://zxgk_query.py)
+- [zxgk/cli.py](file://zxgk/cli.py)
+- [zxgk/runner.py](file://zxgk/runner.py)
+- [zxgk/async_runner.py](file://zxgk/async_runner.py)
+- [zxgk/backfill.py](file://zxgk/backfill.py)
+- [writers/sqlite.py](file://writers/sqlite.py)
+- [writers/feishu.py](file://writers/feishu.py)
+- [writers/__init__.py](file://writers/__init__.py)
+- [config/zxgk.yaml](file://config/zxgk.yaml)
+- [config/companies.txt](file://config/companies.txt)
 - [setup.sh](file://setup.sh)
 - [smoke_test.sh](file://smoke_test.sh)
 - [diagnose_subsites.py](file://diagnose_subsites.py)
-- [zxgk_query.py](file://zxgk_query.py)
-- [writers/__init__.py](file://writers/__init__.py)
-- [writers/sqlite.py](file://writers/sqlite.py)
-- [writers/feishu.py](file://writers/feishu.py)
-- [zxgk/backfill.py](file://zxgk/backfill.py)
-- [zxgk/runner.py](file://zxgk/runner.py)
-- [zxgk/cli.py](file://zxgk/cli.py)
-- [config/zxgk.yaml](file://config/zxgk.yaml)
-- [config/companies.txt](file://config/companies.txt)
-- [README.md](file://README.md)
 - [captcha-solver/main.py](file://captcha-solver/main.py)
 - [captcha-solver/Dockerfile](file://captcha-solver/Dockerfile)
 - [captcha-solver/docker-compose.yml](file://captcha-solver/docker-compose.yml)
@@ -23,11 +23,12 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for the new ScreenshotBackfiller class (295 lines) that implements Phase B screenshot recovery
-- Updated architecture diagrams to reflect the two-phase workflow (Phase A + Phase B)
-- Enhanced troubleshooting section with backfill-specific guidance
-- Added new section covering the backfill system's targeted screenshot capture and upload operations
-- Updated component analysis to include the dedicated backfill workflow
+- Updated architecture overview to reflect the new modular CLI architecture with zxgk/cli.py as the central command entry point
+- Revised orchestrator integration patterns to show direct CLI invocation instead of legacy script-based execution
+- Enhanced component analysis to highlight the separation between cron orchestrator and modular CLI components
+- Updated workflow diagrams to show the new zxgk_query.py entry point and improved execution patterns
+- Added documentation for the new async execution capabilities and backfill mode integration
+- Updated troubleshooting section to reflect the new modular architecture and CLI-based error handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,74 +43,75 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the daily workflow orchestration for automated querying of China Enforcement Information Public Network (执行信息查询) across three subsites: "被执行人" (zhixing), "失信被执行人" (shixin), and "限制消费人员" (xgl). It covers the bash orchestrator, error handling and notifications, logging, multi-subsite execution, and end-to-end storage via SQLite and optional Feishu multi-dimensional tables. The system now includes a sophisticated two-phase workflow with dedicated screenshot backfill capabilities to address missing screenshot recovery with targeted screenshot capture and upload operations.
+This document explains the daily workflow orchestration for automated querying of China Enforcement Information Public Network (执行信息查询) across three subsites: "被执行人" (zhixing), "失信被执行人" (shixin), and "限制消费人员" (xgl). The system now operates under a completely refactored modular CLI architecture where the cron orchestrator integrates directly with zxgk/cli.py, providing enhanced execution patterns, improved error handling, and streamlined multi-subsite processing. The workflow includes comprehensive error handling, notification mechanisms, logging strategies, and end-to-end storage via SQLite and optional Feishu multi-dimensional tables.
 
 ## Project Structure
-The system is organized into:
-- Orchestrator shell script driving the daily run with two-phase execution
-- Core CLI for browser automation and data extraction
-- Writers for local SQLite and optional Feishu integration
-- Dedicated ScreenshotBackfiller for Phase B screenshot recovery
-- Captcha solver service (OCR) with Docker support
-- Configuration and company lists
-- Diagnostics and smoke tests for validation
+The system is organized into a modular architecture with the cron orchestrator coordinating with the centralized CLI entry point:
+
+- **Cron Orchestrator**: [cron_daily_query.sh](file://cron_daily_query.sh) drives the daily execution with enhanced integration to the modular CLI architecture
+- **Central CLI Entry**: [zxgk_query.py](file://zxgk_query.py) serves as the unified command interface that delegates to [zxgk/cli.py](file://zxgk/cli.py)
+- **Core Execution Engine**: [zxgk/runner.py](file://zxgk/runner.py) manages batch execution with WAF awareness and progress tracking
+- **Async Execution**: [zxgk/async_runner.py](file://zxgk/async_runner.py) provides parallel subsite execution capabilities
+- **Backfill System**: [zxgk/backfill.py](file://zxgk/backfill.py) implements targeted screenshot recovery and upload operations
+- **Storage Writers**: [writers/sqlite.py](file://writers/sqlite.py) and [writers/feishu.py](file://writers/feishu.py) handle local and cloud storage
+- **Support Services**: Captcha solver with Docker support and comprehensive configuration management
 
 ```mermaid
 graph TB
-subgraph "Orchestrator"
+subgraph "Cron Orchestrator"
 CRON["cron_daily_query.sh"]
 SETUP["setup.sh"]
 SMOKE["smoke_test.sh"]
 end
-subgraph "Core"
-ZHQ["zxgk_query.py"]
-DIAG["diagnose_subsites.py"]
-RUNNER["zxgk/runner.py"]
+subgraph "Modular CLI Architecture"
+ENTRY["zxgk_query.py"]
 CLI["zxgk/cli.py"]
 end
-subgraph "Backfill System"
+subgraph "Execution Engines"
+RUNNER["zxgk/runner.py"]
+ASYNC["zxgk/async_runner.py"]
 BACKFILL["zxgk/backfill.py"]
 end
-subgraph "Writers"
+subgraph "Storage Layer"
 WSQL["writers/sqlite.py"]
 WFS["writers/feishu.py"]
 WIDX["writers/__init__.py"]
 end
-subgraph "Support"
+subgraph "Support Systems"
 CFG["config/zxgk.yaml"]
 COMPS["config/companies.txt"]
 CAP["captcha-solver/main.py"]
 DOCK["captcha-solver/docker-compose.yml"]
 end
-CRON --> ZHQ
+CRON --> ENTRY
+ENTRY --> CLI
+CLI --> RUNNER
+CLI --> ASYNC
+CLI --> BACKFILL
 CRON --> WSQL
 CRON --> WFS
-CRON --> BACKFILL
-ZHQ --> CAP
-ZHQ --> CFG
-ZHQ --> COMPS
+CLI --> CAP
+CLI --> CFG
+CLI --> COMPS
 RUNNER --> BACKFILL
-CLI --> BACKFILL
 WFS --> CFG
-DIAG --> CFG
+DIAG["diagnose_subsites.py"] --> CFG
 SETUP --> CAP
-SETUP --> ZHQ
-SMOKE --> ZHQ
+SETUP --> ENTRY
+SMOKE --> ENTRY
 SMOKE --> CAP
 ```
 
 **Diagram sources**
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
-- [setup.sh:1-150](file://setup.sh#L1-L150)
-- [smoke_test.sh:1-155](file://smoke_test.sh#L1-L155)
-- [diagnose_subsites.py:1-429](file://diagnose_subsites.py#L1-L429)
-- [zxgk_query.py:1-800](file://zxgk_query.py#L1-L800)
-- [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
+- [cron_daily_query.sh:1-294](file://cron_daily_query.sh#L1-L294)
+- [zxgk_query.py:1-26](file://zxgk_query.py#L1-L26)
+- [zxgk/cli.py:1-397](file://zxgk/cli.py#L1-L397)
+- [zxgk/runner.py:1-275](file://zxgk/runner.py#L1-L275)
+- [zxgk/async_runner.py:1-395](file://zxgk/async_runner.py#L1-L395)
+- [zxgk/backfill.py:1-281](file://zxgk/backfill.py#L1-L281)
 - [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
 - [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
-- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
-- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
-- [zxgk/cli.py:1-321](file://zxgk/cli.py#L1-L321)
+- [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
 - [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
 - [config/companies.txt:1-6](file://config/companies.txt#L1-L6)
 - [captcha-solver/main.py:1-215](file://captcha-solver/main.py#L1-L215)
@@ -117,104 +119,106 @@ SMOKE --> CAP
 
 **Section sources**
 - [README.md:1-122](file://README.md#L1-L122)
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
+- [cron_daily_query.sh:1-294](file://cron_daily_query.sh#L1-L294)
+- [zxgk_query.py:1-26](file://zxgk_query.py#L1-L26)
+- [zxgk/cli.py:1-397](file://zxgk/cli.py#L1-L397)
 - [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
 
 ## Core Components
-- Orchestrator: [cron_daily_query.sh](file://cron_daily_query.sh) performs mutual exclusion, sentinel checks, pre-flight verification, runs three subsite queries, aggregates summaries, optionally backfills screenshots via Phase B, and cleans old artifacts.
-- Core CLI: [zxgk_query.py](file://zxgk_query.py) encapsulates browser automation, captcha solving, query execution, pagination, screenshot capture, and structured output.
-- Writers: [writers/sqlite.py](file://writers/sqlite.py) writes batch results to a local SQLite database; [writers/feishu.py](file://writers/feishu.py) writes to Feishu tables and optionally uploads screenshots.
-- ScreenshotBackfiller: [zxgk/backfill.py](file://zxgk/backfill.py) implements Phase B screenshot recovery system that queries missing screenshots and performs targeted re-capture and upload operations.
-- BatchRunner: [zxgk/runner.py](file://zxgk/runner.py) manages the core batch execution workflow with WAF awareness and progress tracking.
-- CLI Integration: [zxgk/cli.py](file://zxgk/cli.py) provides command-line interface with backfill mode support and argument parsing.
-- Captcha solver: [captcha-solver/main.py](file://captcha-solver/main.py) exposes health and solve endpoints; supports Docker deployment via [docker-compose.yml](file://captcha-solver/docker-compose.yml).
-- Configuration: [config/zxgk.yaml](file://config/zxgk.yaml) defines subsites, browser, WAF, screenshots, Feishu mapping, and defaults; [config/companies.txt](file://config/companies.txt) lists companies to query.
-- Diagnostics and validation: [diagnose_subsites.py](file://diagnose_subsites.py) probes DOM structures; [smoke_test.sh](file://smoke_test.sh) validates environment and outputs.
+- **Cron Orchestrator**: [cron_daily_query.sh](file://cron_daily_query.sh) performs mutual exclusion, sentinel checks, pre-flight verification, integrates with the modular CLI architecture, runs three subsite queries, aggregates summaries, and manages the complete execution lifecycle.
+- **CLI Entry Point**: [zxgk_query.py](file://zxgk_query.py) serves as the unified command interface that delegates to the modular CLI system in [zxgk/cli.py](file://zxgk/cli.py).
+- **Modular CLI System**: [zxgk/cli.py](file://zxgk/cli.py) provides comprehensive command-line interface with argument parsing, mode selection (text-only, screenshot, full, backfill), and enhanced execution patterns.
+- **Batch Execution Engine**: [zxgk/runner.py](file://zxgk/runner.py) manages core batch execution workflow with WAF awareness, progress tracking, and comprehensive error handling.
+- **Async Execution**: [zxgk/async_runner.py](file://zxgk/async_runner.py) provides parallel subsite execution capabilities with thread-safe coordination and rate limiting.
+- **Backfill System**: [zxgk/backfill.py](file://zxgk/backfill.py) implements targeted screenshot recovery with intelligent missing screenshot detection and upload operations.
+- **Storage Writers**: [writers/sqlite.py](file://writers/sqlite.py) writes batch results to local SQLite; [writers/feishu.py](file://writers/feishu.py) writes to Feishu tables with screenshot upload capabilities.
+- **Support Infrastructure**: Captcha solver service with Docker support; comprehensive configuration management; diagnostic and validation tools.
 
 **Section sources**
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
-- [zxgk_query.py:1-800](file://zxgk_query.py#L1-L800)
+- [cron_daily_query.sh:1-294](file://cron_daily_query.sh#L1-L294)
+- [zxgk_query.py:1-26](file://zxgk_query.py#L1-L26)
+- [zxgk/cli.py:1-397](file://zxgk/cli.py#L1-L397)
+- [zxgk/runner.py:1-275](file://zxgk/runner.py#L1-L275)
+- [zxgk/async_runner.py:1-395](file://zxgk/async_runner.py#L1-L395)
+- [zxgk/backfill.py:1-281](file://zxgk/backfill.py#L1-L281)
 - [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
 - [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
-- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
-- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
-- [zxgk/cli.py:1-321](file://zxgk/cli.py#L1-L321)
 - [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
 - [config/companies.txt:1-6](file://config/companies.txt#L1-L6)
-- [diagnose_subsites.py:1-429](file://diagnose_subsites.py#L1-L429)
-- [smoke_test.sh:1-155](file://smoke_test.sh#L1-L155)
 
 ## Architecture Overview
-The workflow is a multi-stage pipeline orchestrated by a single shell script, with robust error handling and optional Feishu integration. The system now operates in two distinct phases: Phase A (initial data collection) and Phase B (screenshot backfill).
+The workflow operates under a completely refactored modular CLI architecture where the cron orchestrator integrates seamlessly with the centralized CLI system. The new architecture provides enhanced execution patterns, improved error handling, and streamlined multi-subsite processing with comprehensive backfill capabilities.
 
 ```mermaid
 sequenceDiagram
 participant Cron as "Scheduler"
 participant Orchestrator as "cron_daily_query.sh"
-participant Venv as "Python venv"
-participant Captcha as "captcha-solver"
-participant CLI as "zxgk_query.py"
+participant CLIEntry as "zxgk_query.py"
+participant CLICore as "zxgk/cli.py"
 participant Runner as "BatchRunner"
+participant AsyncRunner as "AsyncBatchRunner"
 participant Backfill as "ScreenshotBackfiller"
 participant SQLite as "writers/sqlite.py"
 participant Feishu as "writers/feishu.py"
-Cron->>Orchestrator : Invoke daily
-Orchestrator->>Venv : Activate environment
-Orchestrator->>Captcha : Health check (localhost : 8001)
-alt Not healthy
-Orchestrator->>Captcha : Launch via Docker or venv
-end
-Orchestrator->>CLI : Run subsite queries (zhixing, shixin, xgl)
-CLI->>Runner : Execute batch queries
-Runner->>Captcha : Solve captchas
-Runner-->>Orchestrator : Batch JSON per subsite
-Orchestrator->>SQLite : Write results (always)
-alt Feishu configured
-Orchestrator->>Feishu : Write raw tables + cross-ref
-end
-Orchestrator->>Orchestrator : Aggregate summary JSON
-Orchestrator->>Feishu : Wait for computation (30s)
+Cron->>Orchestrator : Invoke daily execution
+Orchestrator->>CLIEntry : python3 zxgk_query.py
+CLIEntry->>CLICore : main() delegation
+CLICore->>Runner : Execute batch queries (sequential)
+CLICore->>AsyncRunner : Execute parallel subsites (async mode)
+Runner->>CLICore : Captcha solving and query execution
+AsyncRunner->>CLICore : Thread-safe execution
+CLICore->>Feishu : Write raw tables and cross-references
+CLICore->>SQLite : Write results to local database
 Orchestrator->>Backfill : Phase B screenshot backfill
 Backfill->>Feishu : Query missing screenshots
-Backfill->>Captcha : Solve captchas for re-capture
 Backfill->>Backfill : Search companies and capture screenshots
 Backfill->>Feishu : Upload missing screenshots
-Orchestrator->>Orchestrator : Cleanup old artifacts
+Orchestrator->>Orchestrator : Cleanup and artifact management
 ```
 
 **Diagram sources**
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
-- [zxgk_query.py:1-800](file://zxgk_query.py#L1-L800)
-- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
-- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
-- [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
-- [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
-- [captcha-solver/main.py:1-215](file://captcha-solver/main.py#L1-L215)
+- [cron_daily_query.sh:115-208](file://cron_daily_query.sh#L115-L208)
+- [zxgk_query.py:22-25](file://zxgk_query.py#L22-L25)
+- [zxgk/cli.py:355-397](file://zxgk/cli.py#L355-L397)
+- [zxgk/runner.py:45-142](file://zxgk/runner.py#L45-L142)
+- [zxgk/async_runner.py:345-395](file://zxgk/async_runner.py#L345-L395)
+- [zxgk/backfill.py:271-281](file://zxgk/backfill.py#L271-L281)
+- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
+- [writers/feishu.py:154-478](file://writers/feishu.py#L154-L478)
 
 ## Detailed Component Analysis
 
-### Orchestrator: cron_daily_query.sh
-Responsibilities:
-- Mutual exclusion via lock directory and sentinel file
-- Pre-flight checks: captcha-solver health, lark-cli auth
-- Per-subsite execution with independent failure handling
-- Local SQLite backup and optional Feishu writes
-- Summary aggregation and Phase B screenshot backfill
-- Artifact cleanup and logging
+### Cron Orchestrator: Enhanced Integration with Modular CLI
+The cron orchestrator now provides seamless integration with the modular CLI architecture, offering enhanced execution patterns and improved error handling.
 
-Key behaviors:
-- Locking prevents concurrent runs; sentinel avoids re-execution on the same day
-- Subsite runner function executes CLI, logs to both terminal and file, writes SQLite, conditionally Feishu
-- Summary JSON consolidates counts and statuses across subsites
-- Optional backfill waits for Feishu computation then re-queries missing screenshots using the dedicated ScreenshotBackfiller
+**Key Responsibilities:**
+- Mutual exclusion via lock directory and sentinel file management
+- Pre-flight checks for captcha-solver health and lark-cli authentication
+- Direct integration with zxgk_query.py CLI entry point
+- Per-subsite execution with independent failure handling
+- Enhanced logging and artifact management
+- Phase B screenshot backfill integration
+
+**Enhanced Features:**
+- Direct CLI invocation pattern: `python3 zxgk_query.py` instead of legacy script execution
+- Improved error handling with detailed exit codes
+- Enhanced logging with both terminal and file output
+- Flexible execution modes: sequential and asynchronous parallel processing
+- Comprehensive cleanup and artifact management
 
 ```mermaid
 flowchart TD
-Start(["Start"]) --> Lock["Create lock dir<br/>Exit if exists"]
+Start(["Start"]) --> Lock["Create lock directory<br/>Exit if exists"]
 Lock --> Sentinel["Check daily sentinel<br/>Exit if exists"]
 Sentinel --> Preflight["Pre-flight checks:<br/>captcha-solver health<br/>lark-cli auth"]
-Preflight --> RunSubsites["Run subsites:<br/>zhixing → shixin → xgl"]
-RunSubsites --> SQLiteWrite["Write SQLite"]
+Preflight --> CLIInvocation["Invoke CLI Entry:<br/>python3 zxgk_query.py"]
+CLIInvocation --> ModeSelection{"Mode Selection"}
+ModeSelection --> |Sequential| SequentialRun["Sequential Subsite Execution"]
+ModeSelection --> |Parallel| ParallelRun["Parallel Subsite Execution"]
+SequentialRun --> BatchProcessing["Process zhixing → shixin → xgl"]
+ParallelRun --> AsyncProcessing["Execute all subsites concurrently"]
+BatchProcessing --> SQLiteWrite["Write SQLite results"]
+AsyncProcessing --> SQLiteWrite
 SQLiteWrite --> FeishuCheck{"Feishu configured?"}
 FeishuCheck --> |Yes| FeishuWrite["Write Feishu raw + cross-ref"]
 FeishuCheck --> |No| SkipFeishu["Skip Feishu"]
@@ -222,320 +226,390 @@ FeishuWrite --> Summary["Generate summary JSON"]
 SkipFeishu --> Summary
 Summary --> BackfillCheck{"Feishu configured?"}
 BackfillCheck --> |Yes| WaitCompute["Wait 30s for Feishu compute"]
-BackfillCheck --> |No| Done
-WaitCompute --> Backfill["Execute ScreenshotBackfiller.run()"]
+BackfillCheck --> |No| Cleanup
+WaitCompute --> Backfill["Execute ScreenshotBackfiller"]
 Backfill --> Cleanup["Cleanup old artifacts"]
 Cleanup --> Done(["Done"])
 ```
 
 **Diagram sources**
-- [cron_daily_query.sh:16-246](file://cron_daily_query.sh#L16-L246)
+- [cron_daily_query.sh:16-294](file://cron_daily_query.sh#L16-L294)
 
 **Section sources**
-- [cron_daily_query.sh:16-246](file://cron_daily_query.sh#L16-L246)
+- [cron_daily_query.sh:16-294](file://cron_daily_query.sh#L16-L294)
 
-### Core CLI: zxgk_query.py
-Responsibilities:
-- Browser lifecycle management with stealth and cleanup
-- Navigation to subsites, WAF detection, retries
-- Captcha extraction and solving via external service
-- Form submission, result parsing, pagination, and de-duplication by viewId
-- Screenshot capture and optional upload mapping
-- Structured JSON output for downstream writers
-- Backfill mode support for targeted screenshot recovery
+### CLI Entry Point: Unified Command Interface
+The CLI entry point serves as the central hub for all command-line operations, providing a unified interface to the modular architecture.
 
-Design highlights:
-- Modular classes: BrowserManager, CaptchaSolver, QueryEngine, DetailScreenshot, ScreenshotBackfiller
-- Robust error handling: WAF blocked, navigation errors, captcha unavailable
-- Extensive logging and signal handlers for graceful shutdown
-- Dedicated backfill mode for Phase B screenshot recovery
+**Responsibilities:**
+- Delegates to the main CLI system in zxgk/cli.py
+- Provides backward compatibility with legacy command patterns
+- Handles exit codes and error propagation
+- Manages the complete execution lifecycle
+
+**Key Features:**
+- Simple delegation pattern: `sys.exit(main())`
+- Maintains compatibility with existing scripts
+- Supports all CLI modes and options
+- Provides consistent error handling
+
+**Section sources**
+- [zxgk_query.py:1-26](file://zxgk_query.py#L1-L26)
+
+### Modular CLI System: Centralized Command Processing
+The modular CLI system in zxgk/cli.py provides comprehensive command-line interface capabilities with enhanced execution patterns.
+
+**Core Functions:**
+- **Argument Parsing**: Comprehensive CLI argument processing with validation
+- **Mode Selection**: Support for text-only, screenshot, full, and backfill modes
+- **Execution Patterns**: Sequential and parallel execution capabilities
+- **Error Handling**: Robust error handling with detailed exit codes
+- **Configuration Management**: Dynamic configuration loading and validation
+
+**Enhanced Features:**
+- **Backfill Mode**: Dedicated phase B screenshot recovery execution
+- **Async Execution**: Python 3.11+ async/await support for parallel processing
+- **Diagnostic Mode**: Built-in system health and configuration checking
+- **Resume Capability**: Breakpoint continuation for long-running operations
+- **Flexible Output**: Multiple output formats and destinations
 
 ```mermaid
 classDiagram
-class BrowserManager {
-+bool headless
-+dict config
-+launch()
-+navigate(subsite)
-+close()
--_cleanup_orphans()
+class CLIMain {
++build_parser() ArgumentParser
++run_diagnose(config, subsite) int
++run_single(config, args) int
++run_batch(config, args) int
++run_async_batch(config, args) int
++run_backfill(config, args) int
++main() int
 }
-class CaptchaSolver {
-+str server_url
-+health_check() bool
-+get_captcha(page) str
-+solve(b64) (str, float)
-+refresh(page) void
+class ArgumentParser {
++add_argument()
++parse_args()
++error()
 }
-class QueryEngine {
-+int max_retries
-+str subsite
-+query(company) list
--_submit() void
--_dismiss_dialogs() void
--_collect_all_pages() list
-}
-class DetailScreenshot {
-+capture_all(records) map
--_capture_one(view_id, idx, case_no) str
-}
-class ScreenshotBackfiller {
-+str batch_id
-+int max_per_session
-+run() void
-+find_missing_screenshots() list
-+backfill_batch(records) void
+class ExecutionModes {
++text_only
++screenshot
++full
++backfill
 }
 class BatchRunner {
 +run(companies) dict
 +_write_feishu(records, screenshot_map) void
 +_save_result(company, records, screenshot_map) void
 }
-BrowserManager --> CaptchaSolver : "uses"
-BrowserManager --> QueryEngine : "provides page"
-QueryEngine --> CaptchaSolver : "calls"
-QueryEngine --> DetailScreenshot : "optional"
-ScreenshotBackfiller --> BrowserManager : "uses"
-BatchRunner --> QueryEngine : "uses"
-BatchRunner --> DetailScreenshot : "optional"
+class AsyncBatchRunner {
++run_parallel_subsites(config, companies, subsites) dict
++_run_subsite_sync() tuple
+}
+class ScreenshotBackfiller {
++find_missing_screenshots() list
++backfill_batch(records) void
++run() void
+}
+CLIMain --> ArgumentParser : "creates"
+CLIMain --> ExecutionModes : "selects"
+CLIMain --> BatchRunner : "uses"
+CLIMain --> AsyncBatchRunner : "uses"
+CLIMain --> ScreenshotBackfiller : "uses"
 ```
 
 **Diagram sources**
-- [zxgk_query.py:175-772](file://zxgk_query.py#L175-L772)
-- [zxgk/backfill.py:12-296](file://zxgk/backfill.py#L12-L296)
-- [zxgk/runner.py:15-278](file://zxgk/runner.py#L15-L278)
+- [zxgk/cli.py:227-397](file://zxgk/cli.py#L227-L397)
+- [zxgk/runner.py:15-275](file://zxgk/runner.py#L15-L275)
+- [zxgk/async_runner.py:345-395](file://zxgk/async_runner.py#L345-L395)
+- [zxgk/backfill.py:12-281](file://zxgk/backfill.py#L12-L281)
 
 **Section sources**
-- [zxgk_query.py:175-772](file://zxgk_query.py#L175-L772)
-- [zxgk/backfill.py:12-296](file://zxgk/backfill.py#L12-L296)
-- [zxgk/runner.py:15-278](file://zxgk/runner.py#L15-L278)
+- [zxgk/cli.py:1-397](file://zxgk/cli.py#L1-L397)
 
-### ScreenshotBackfiller: Phase B Screenshot Recovery System
-**New Component** - The ScreenshotBackfiller class implements a sophisticated two-phase workflow designed to recover missing screenshots from the Feishu case master table.
+### Batch Execution Engine: Enhanced Processing
+The BatchRunner in zxgk/runner.py manages the core batch execution workflow with improved WAF awareness and progress tracking.
 
-Responsibilities:
-- Query Feishu case master table for records with empty screenshot fields
-- Extract real viewIds from raw table DuplexLink relationships
-- Group missing records by company for efficient batch processing
-- Navigate to zhixing subsite, search companies, and solve captchas
-- Capture screenshots for missing records and upload to Feishu
-- Update case master table with uploaded screenshot file tokens
+**Enhanced Features:**
+- **Thread Safety**: Improved thread safety for concurrent operations
+- **Rate Limiting**: Enhanced rate limiting with configurable intervals
+- **Progress Tracking**: Comprehensive progress tracking with resume capability
+- **Error Recovery**: Robust error recovery with automatic browser restart
+- **Output Management**: Flexible output formats and destinations
 
-Key Features:
-- **Targeted Recovery**: Only processes records with missing screenshots, avoiding unnecessary work
-- **ViewId Resolution**: Uses DuplexLink relationships to get accurate viewIds from raw records
-- **Company Grouping**: Processes companies in batches to minimize repeated navigation
-- **Robust Error Handling**: Handles captcha failures, search failures, and upload errors gracefully
-- **Progress Tracking**: Maintains success/failure counters and logs detailed progress
+**Key Components:**
+- **WAF Awareness**: Configurable WAF detection and retry mechanisms
+- **Session Management**: Intelligent browser session management
+- **Result Processing**: Structured result processing and validation
+- **Storage Integration**: Seamless integration with multiple storage backends
+
+**Section sources**
+- [zxgk/runner.py:1-275](file://zxgk/runner.py#L1-L275)
+
+### Async Execution System: Parallel Processing
+The AsyncBatchRunner in zxgk/async_runner.py provides parallel subsite execution capabilities with thread-safe coordination and rate limiting.
+
+**Advanced Features:**
+- **Thread Pool Management**: Efficient thread pool utilization for parallel execution
+- **Rate Gate Coordination**: Shared rate limiting across all parallel workers
+- **Circuit Breaker Protection**: WAF circuit breaker for coordinated protection
+- **Exception Handling**: Comprehensive exception handling and recovery
+- **Progress Synchronization**: Coordinated progress tracking across threads
+
+**Technical Implementation:**
+- **Thread-Safe Design**: All components designed for thread-safe operation
+- **Shared State Management**: Coordinated access to shared resources
+- **Graceful Degradation**: Automatic fallback to sequential execution on failure
+- **Resource Management**: Efficient resource utilization and cleanup
+
+**Section sources**
+- [zxgk/async_runner.py:1-395](file://zxgk/async_runner.py#L1-L395)
+
+### Backfill System: Targeted Screenshot Recovery
+The ScreenshotBackfiller in zxgk/backfill.py implements sophisticated screenshot recovery capabilities with intelligent missing screenshot detection.
+
+**Core Capabilities:**
+- **Intelligent Detection**: Automated detection of missing screenshots in Feishu tables
+- **ViewId Resolution**: Accurate viewId extraction from DuplexLink relationships
+- **Company Grouping**: Efficient processing through strategic company grouping
+- **Targeted Recovery**: Focused re-capture and upload operations
+- **Progress Tracking**: Comprehensive progress monitoring and reporting
+
+**Advanced Features:**
+- **DuplexLink Integration**: Deep integration with Feishu table relationships
+- **Error Resilience**: Robust error handling and recovery mechanisms
+- **Performance Optimization**: Optimized processing for large-scale operations
+- **Quality Assurance**: Automated quality checks and validation
 
 ```mermaid
 flowchart TD
-Start(["ScreenshotBackfiller.run()"]) --> FindMissing["find_missing_screenshots()"]
-FindMissing --> CheckRecords{"Any missing records?"}
-CheckRecords --> |No| Skip["Skip backfill"]
-CheckRecords --> |Yes| GroupByCompany["Group by company"]
-GroupByCompany --> InitBrowser["Initialize BrowserManager"]
-InitBrowser --> Navigate["Navigate to zhixing"]
-Navigate --> ProcessCompanies["Process companies in order"]
-ProcessCompanies --> SearchCompany["Search company and solve captcha"]
-SearchCompany --> LoopRecords["Loop missing records for company"]
-LoopRecords --> CaptureDetail["_capture_detail(view_id)"]
-CaptureDetail --> UploadMedia["Upload to Feishu media"]
-UploadMedia --> UpdateRecord["Update case master record"]
-UpdateRecord --> NextRecord["Next record"]
+Start(["Backfill System Start"]) --> DetectMissing["Detect Missing Screenshots"]
+DetectMissing --> ExtractViewIds["Extract ViewIds from DuplexLink"]
+ExtractViewIds --> GroupByCompany["Group by Company"]
+GroupByCompany --> InitializeBrowser["Initialize Browser Manager"]
+InitializeBrowser --> NavigateSubsite["Navigate to zhixing Subsite"]
+NavigateSubsite --> ProcessCompanies["Process Companies in Order"]
+ProcessCompanies --> SearchCompany["Search Company and Solve Captcha"]
+SearchCompany --> LoopRecords["Loop Missing Records"]
+LoopRecords --> CaptureDetail["Capture Detail Screenshot"]
+CaptureDetail --> UploadMedia["Upload to Feishu Media"]
+UploadMedia --> UpdateRecord["Update Case Master Record"]
+UpdateRecord --> NextRecord["Next Record"]
 NextRecord --> |More| LoopRecords
-NextRecord --> |None| NextCompany["Next company"]
+NextRecord --> |None| NextCompany
 NextCompany --> |More| ProcessCompanies
-NextCompany --> |None| Complete["Complete backfill"]
-Skip --> End(["End"])
-Complete --> End
+NextCompany --> |None| Complete
+Complete --> End(["Backfill Complete"])
 ```
 
 **Diagram sources**
-- [zxgk/backfill.py:286-296](file://zxgk/backfill.py#L286-L296)
 - [zxgk/backfill.py:60-116](file://zxgk/backfill.py#L60-L116)
 - [zxgk/backfill.py:118-191](file://zxgk/backfill.py#L118-L191)
+- [zxgk/backfill.py:271-281](file://zxgk/backfill.py#L271-L281)
 
 **Section sources**
-- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
+- [zxgk/backfill.py:1-281](file://zxgk/backfill.py#L1-L281)
 
-### Writers: SQLite and Feishu
-- SQLite writer: [writers/sqlite.py](file://writers/sqlite.py) writes per-subsite tables, supports storing screenshot paths or binary data, and migrates schema on demand.
-- Feishu writer: [writers/feishu.py](file://writers/feishu.py) writes raw tables, optionally updates cross-references in the case master table, and uploads screenshots to the master table. It uses lark-cli for API calls and media uploads.
+### Storage Writers: Flexible Data Persistence
+The storage system provides flexible data persistence through SQLite and Feishu integration.
 
-```mermaid
-sequenceDiagram
-participant Orchestrator as "cron_daily_query.sh"
-participant SQLite as "writers/sqlite.py"
-participant Feishu as "writers/feishu.py"
-Orchestrator->>SQLite : Write batch JSON to SQLite
-alt Feishu configured
-Orchestrator->>Feishu : Write raw tables
-Orchestrator->>Feishu : Cross-reference case master
-Orchestrator->>Feishu : Upload screenshots
-else
-Orchestrator->>Orchestrator : Skip Feishu
-end
-```
+**SQLite Writer:**
+- **Schema Management**: Automatic schema creation and migration
+- **Binary Storage**: Optional BLOB storage for screenshots
+- **Data Integrity**: Comprehensive data validation and integrity checks
+- **Performance**: Optimized for large-scale data operations
 
-**Diagram sources**
-- [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
-- [writers/feishu.py:154-478](file://writers/feishu.py#L154-L478)
+**Feishu Writer:**
+- **Table Integration**: Seamless integration with Feishu multi-dimensional tables
+- **Cross-Reference**: Automatic cross-referencing between raw and case tables
+- **Media Upload**: Integrated screenshot upload capabilities
+- **Field Mapping**: Flexible field mapping for different table structures
 
 **Section sources**
 - [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
 - [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
+- [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
 
-### Captcha Solver Service
-- [captcha-solver/main.py](file://captcha-solver/main.py) exposes health and solve endpoints, validates images, and logs requests.
-- Deployment: [docker-compose.yml](file://captcha-solver/docker-compose.yml) and [Dockerfile](file://captcha-solver/Dockerfile) enable containerized OCR with PaddleOCR.
+### Support Infrastructure: Comprehensive System Management
+The support infrastructure provides comprehensive system management capabilities including captcha solver services, configuration management, and diagnostic tools.
 
-```mermaid
-graph TB
-Client["Browser/CLI"] --> API["/health and /solve endpoints"]
-API --> OCR["PaddleOCR model"]
-API --> Logger["Logging"]
-```
+**Captcha Solver Service:**
+- **Health Monitoring**: Continuous health monitoring and automatic restart
+- **Docker Integration**: Full Docker support with containerized OCR processing
+- **Fallback Mechanisms**: Automatic fallback between Docker and native execution
+- **Performance Optimization**: Configurable performance settings for optimal throughput
 
-**Diagram sources**
-- [captcha-solver/main.py:107-215](file://captcha-solver/main.py#L107-L215)
-- [captcha-solver/docker-compose.yml:1-13](file://captcha-solver/docker-compose.yml#L1-L13)
-- [captcha-solver/Dockerfile:1-22](file://captcha-solver/Dockerfile#L1-L22)
+**Configuration Management:**
+- **Dynamic Loading**: Runtime configuration loading and validation
+- **Environment Integration**: Seamless environment variable integration
+- **Default Values**: Comprehensive default value management
+- **Validation**: Input validation and error reporting
 
 **Section sources**
 - [captcha-solver/main.py:1-215](file://captcha-solver/main.py#L1-L215)
 - [captcha-solver/docker-compose.yml:1-13](file://captcha-solver/docker-compose.yml#L1-L13)
-- [captcha-solver/Dockerfile:1-22](file://captcha-solver/Dockerfile#L1-L22)
-
-### Diagnostics and Validation
-- [diagnose_subsites.py](file://diagnose_subsites.py) probes DOM structures, captures table info, pagination, and attempts a test search with OCR.
-- [smoke_test.sh](file://smoke_test.sh) validates Python/Shell syntax, YAML config, environment variables, venv, and recent batch JSON format.
-
-**Section sources**
-- [diagnose_subsites.py:1-429](file://diagnose_subsites.py#L1-L429)
-- [smoke_test.sh:1-155](file://smoke_test.sh#L1-L155)
+- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
+- [config/companies.txt:1-6](file://config/companies.txt#L1-L6)
 
 ## Dependency Analysis
-- Orchestrator depends on:
-  - Python virtual environment and activated packages
-  - Captcha solver service availability
-  - Feishu CLI authentication (optional)
-  - Configuration and company list files
-- Core CLI depends on:
-  - Playwright Chromium installation
-  - Captcha solver service
-  - Feishu app token (optional)
-  - ScreenshotBackfiller for Phase B operations
-- Writers depend on:
-  - SQLite for local persistence
-  - Feishu APIs via lark-cli (optional)
-- ScreenshotBackfiller depends on:
-  - Feishu case master table structure
-  - DuplexLink relationships between raw and case tables
-  - Browser automation for re-capturing screenshots
+The modular CLI architecture introduces a clear dependency hierarchy with the cron orchestrator at the top level delegating to the centralized CLI system.
+
+**Top-Level Dependencies:**
+- **Cron Orchestrator**: Depends on Python virtual environment, CLI entry point, and configuration files
+- **CLI Entry Point**: Direct dependency on zxgk/cli.py for all execution logic
+- **CLI System**: Depends on core modules, configuration system, and storage writers
+
+**Core Module Dependencies:**
+- **BatchRunner**: Depends on browser management, captcha solving, and storage systems
+- **AsyncRunner**: Requires thread-safe coordination primitives and shared state management
+- **Backfill System**: Integrates deeply with Feishu API and table relationships
+- **Storage Writers**: Independent modules with clear interfaces and minimal dependencies
 
 ```mermaid
 graph LR
-CRON["cron_daily_query.sh"] --> ZHQ["zxgk_query.py"]
-CRON --> WSQL["writers/sqlite.py"]
-CRON --> WFS["writers/feishu.py"]
-CRON --> BACKFILL["zxgk/backfill.py"]
-ZHQ --> CAP["captcha-solver/main.py"]
-ZHQ --> CFG["config/zxgk.yaml"]
-ZHQ --> COMPS["config/companies.txt"]
-ZHQ --> RUNNER["zxgk/runner.py"]
-RUNNER --> BACKFILL
-BACKFILL --> WFS
-WFS --> CFG
+CRON["cron_daily_query.sh"] --> ENTRY["zxgk_query.py"]
+ENTRY --> CLI["zxgk/cli.py"]
+CLI --> RUNNER["zxgk/runner.py"]
+CLI --> ASYNC["zxgk/async_runner.py"]
+CLI --> BACKFILL["zxgk/backfill.py"]
+CLI --> CAP["captcha-solver/main.py"]
+CLI --> CFG["config/zxgk.yaml"]
+CLI --> COMPS["config/companies.txt"]
+RUNNER --> SQLITE["writers/sqlite.py"]
+RUNNER --> FEISHU["writers/feishu.py"]
+ASYNC --> RUNNER
+BACKFILL --> FEISHU
+BACKFILL --> SQLITE
+FEISHU --> CFG
 ```
 
 **Diagram sources**
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
-- [zxgk_query.py:1-800](file://zxgk_query.py#L1-L800)
-- [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
-- [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
-- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
-- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
-- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
-- [config/companies.txt:1-6](file://config/companies.txt#L1-L6)
-- [captcha-solver/main.py:1-215](file://captcha-solver/main.py#L1-L215)
+- [cron_daily_query.sh:115-208](file://cron_daily_query.sh#L115-L208)
+- [zxgk_query.py:22-25](file://zxgk_query.py#L22-L25)
+- [zxgk/cli.py:11-17](file://zxgk/cli.py#L11-L17)
+- [zxgk/runner.py:8-12](file://zxgk/runner.py#L8-L12)
+- [zxgk/async_runner.py:21-27](file://zxgk/async_runner.py#L21-L27)
+- [zxgk/backfill.py:7-9](file://zxgk/backfill.py#L7-L9)
+- [writers/sqlite.py:10-16](file://writers/sqlite.py#L10-L16)
+- [writers/feishu.py:23-24](file://writers/feishu.py#L23-L24)
 
 **Section sources**
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
-- [zxgk_query.py:1-800](file://zxgk_query.py#L1-L800)
+- [cron_daily_query.sh:1-294](file://cron_daily_query.sh#L1-L294)
+- [zxgk_query.py:1-26](file://zxgk_query.py#L1-L26)
+- [zxgk/cli.py:1-397](file://zxgk/cli.py#L1-L397)
+- [zxgk/runner.py:1-275](file://zxgk/runner.py#L1-L275)
+- [zxgk/async_runner.py:1-395](file://zxgk/async_runner.py#L1-L395)
+- [zxgk/backfill.py:1-281](file://zxgk/backfill.py#L1-L281)
 - [writers/sqlite.py:1-121](file://writers/sqlite.py#L1-L121)
 - [writers/feishu.py:1-596](file://writers/feishu.py#L1-L596)
-- [zxgk/backfill.py:1-296](file://zxgk/backfill.py#L1-L296)
-- [zxgk/runner.py:1-278](file://zxgk/runner.py#L1-L278)
 - [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
 - [config/companies.txt:1-6](file://config/companies.txt#L1-L6)
-- [captcha-solver/main.py:1-215](file://captcha-solver/main.py#L1-L215)
 
 ## Performance Considerations
-- Concurrency and isolation:
-  - Mutual exclusion via lock directory prevents overlapping runs; sentinel avoids redundant executions on the same day.
-- Resource limits:
-  - Captcha solver Docker service sets memory limit; adjust as needed for your environment.
-- Browser and network:
-  - Headless mode reduces overhead; viewport and stealth settings improve compatibility.
-- Retry and throttling:
-  - WAF retry and cooldown parameters reduce blocking; screenshot intervals prevent rate limiting.
-- Storage:
-  - SQLite provides zero-dependency local persistence; consider BLOB storage for screenshots if disk space allows.
-- Monitoring:
-  - Daily summary JSON and detailed logs facilitate quick diagnostics.
-- **Phase B Optimization**:
-  - Company grouping minimizes repeated navigation and captcha solving
-  - Session-based processing reduces browser startup overhead
-  - Configurable max_per_session prevents overwhelming the system
+The modular CLI architecture provides several performance optimizations and considerations:
+
+**Execution Efficiency:**
+- **Direct CLI Integration**: Eliminates intermediate script layers for improved performance
+- **Async Parallel Processing**: Python 3.11+ async/await support for concurrent subsite execution
+- **Thread-Safe Design**: Efficient thread pool utilization with proper resource management
+- **Rate Limiting**: Configurable rate limiting to prevent WAF detection and improve reliability
+
+**Resource Management:**
+- **Memory Optimization**: Efficient memory usage through proper object lifecycle management
+- **Browser Session Reuse**: Intelligent browser session management to reduce startup overhead
+- **Captcha Solver Optimization**: Configurable solver settings for optimal OCR performance
+- **Storage Efficiency**: Flexible storage options with binary vs. file-based screenshot storage
+
+**Scalability Features:**
+- **Horizontal Scaling**: Thread pool-based parallel execution for multi-core systems
+- **Load Balancing**: Automatic load balancing across available CPU cores
+- **Failure Isolation**: Independent execution paths prevent cascading failures
+- **Resource Pooling**: Shared resource pools for optimal utilization
+
+**Monitoring and Optimization:**
+- **Progress Tracking**: Comprehensive progress tracking for long-running operations
+- **Performance Metrics**: Built-in performance monitoring and reporting
+- **Adaptive Rate Limiting**: Dynamic adjustment based on system performance
+- **Resource Utilization**: Real-time monitoring of CPU, memory, and network usage
 
 ## Troubleshooting Guide
-Common issues and resolutions:
-- Captcha solver not running:
-  - Orchestrator attempts Docker and falls back to venv; verify port 8001 and process conflicts.
-- Feishu not configured:
-  - Lark-cli auth check sets a flag; Feishu steps are skipped; configure token and tables to enable.
-- WAF blocked:
-  - CLI detects absence of captcha element and retries with cooldown; review navigation selectors and extra waits.
-- No results:
-  - CLI returns non-zero exit code; verify company names and subsite-specific fields (e.g., province selection for shixin).
-- OCR failures:
-  - Low-confidence predictions trigger captcha refresh; ensure captcha-solver health and image quality.
-- **Phase B Issues**:
-  - Missing screenshots: Verify Feishu case master table has records with empty screenshot fields
-  - ViewId resolution failures: Check DuplexLink relationships between raw and case tables
-  - Company search failures: Ensure companies still exist in the system and haven't been removed
-  - Upload failures: Verify Feishu media storage capacity and file permissions
-- Diagnostics:
-  - Use [diagnose_subsites.py](file://diagnose_subsites.py) to probe DOM structures and test search flow.
-- Smoke testing:
-  - Use [smoke_test.sh](file://smoke_test.sh) to validate environment, configs, and recent batch JSON.
+The modular CLI architecture introduces new troubleshooting patterns and enhanced error handling capabilities.
+
+**Common Issues and Resolutions:**
+
+**CLI Integration Issues:**
+- **Entry Point Failures**: Verify zxgk_query.py delegation to zxgk/cli.py
+- **Argument Parsing Errors**: Check CLI argument validation and configuration loading
+- **Mode Selection Problems**: Ensure correct mode specification (text-only, screenshot, full, backfill)
+
+**Execution Environment Issues:**
+- **Python Version Compatibility**: Verify Python 3.11+ for async mode, otherwise use sequential execution
+- **Virtual Environment Issues**: Ensure proper venv activation and dependency installation
+- **Module Import Failures**: Check zxgk package import and module availability
+
+**WAF and Security Issues:**
+- **Blocking Detection**: Monitor WAFBlockedError and implement appropriate cooldown
+- **Rate Limiting**: Adjust company_interval_sec and captcha_max_retries in configuration
+- **Session Management**: Implement proper browser session cleanup and restart
+
+**Storage and Data Issues:**
+- **SQLite Connection Problems**: Verify database file permissions and disk space
+- **Feishu API Errors**: Check app token validity and table permissions
+- **File Upload Failures**: Validate screenshot file paths and media storage capacity
+
+**Backfill System Issues:**
+- **Missing Screenshot Detection**: Verify Feishu table structure and field mappings
+- **ViewId Resolution**: Check DuplexLink relationships and viewId extraction logic
+- **Upload Failures**: Validate media storage limits and file permissions
+
+**Diagnostic and Validation:**
+- **System Health Checks**: Use built-in diagnostic mode for comprehensive system validation
+- **Configuration Validation**: Verify YAML configuration syntax and field mappings
+- **Component Testing**: Test individual components in isolation for targeted debugging
+
+**Enhanced Troubleshooting Tools:**
+- **Verbose Logging**: Enable debug logging for detailed execution tracing
+- **Progress Files**: Monitor progress files for breakpoint continuation
+- **Error Codes**: Utilize standardized exit codes for automated error handling
+- **System Diagnostics**: Use diagnose_subsites.py for DOM structure validation
 
 **Section sources**
 - [cron_daily_query.sh:48-96](file://cron_daily_query.sh#L48-L96)
-- [zxgk_query.py:297-324](file://zxgk_query.py#L297-L324)
+- [zxgk/cli.py:365-397](file://zxgk/cli.py#L365-L397)
 - [writers/feishu.py:29-33](file://writers/feishu.py#L29-L33)
 - [smoke_test.sh:106-143](file://smoke_test.sh#L106-L143)
 
 ## Conclusion
-The daily workflow orchestration integrates a robust shell orchestrator, a resilient browser automation core, and pluggable storage writers. The system now features a sophisticated two-phase approach with dedicated screenshot backfill capabilities that address critical missing screenshot recovery needs. It ensures reliability through mutual exclusion, sentinel checks, WAF-aware retries, and optional Feishu integration. With diagnostics and smoke tests, operators can maintain and troubleshoot the system effectively while optimizing performance and resource usage.
+The daily workflow orchestration has been completely refactored to operate under a modern modular CLI architecture. The new system provides enhanced execution patterns, improved error handling, and streamlined multi-subsite processing through the centralized CLI entry point. The cron orchestrator now integrates seamlessly with the modular architecture, offering better performance, scalability, and maintainability. The system maintains comprehensive error handling, notification mechanisms, and logging strategies while providing enhanced backfill capabilities for targeted screenshot recovery.
 
 ## Appendices
 
 ### Practical Cron Job Configuration
-- Schedule the orchestrator to run daily at a chosen time:
+**Updated** Enhanced integration with modular CLI architecture
+
+**Cron Job Setup:**
+- Schedule the orchestrator to run daily at preferred time:
   - Example: run at 02:15 UTC for Beijing-time morning processing
-  - Command: [cron_daily_query.sh](file://cron_daily_query.sh)
-- Ensure environment:
-  - Source virtual environment and set required variables before invoking the script
-  - Confirm Feishu token if enabling Feishu writes
+  - Command: `bash cron_daily_query.sh` with enhanced CLI integration
+- Ensure environment preparation:
+  - Source virtual environment and set required variables
+  - Verify FEISHU_APP_TOKEN for Feishu integration
+  - Confirm captcha-solver availability on localhost:8001
+
+**Section sources**
+- [setup.sh:1-150](file://setup.sh#L1-L150)
+- [config/zxgk.yaml:1-102](file://config/zxgk.yaml#L1-L102)
+- [config/companies.txt:1-6](file://config/companies.txt#L1-L6)
 
 ### Environment Setup
-- Install prerequisites and dependencies:
-  - Use [setup.sh](file://setup.sh) to install Python venv, Playwright Chromium, lark-cli, and optional PaddleOCR
-- Configure:
-  - Copy and edit [config/zxgk.yaml](file://config/zxgk.yaml) and [config/companies.txt](file://config/companies.txt)
+**Updated** Streamlined setup process with modular CLI integration
+
+**Installation Process:**
+- Install prerequisites using setup.sh:
+  - Python venv, Playwright Chromium, lark-cli, and optional PaddleOCR
+  - Enhanced dependency management and validation
+- Configure system components:
+  - Copy and edit config/zxgk.yaml and config/companies.txt
   - Set environment variable FEISHU_APP_TOKEN for Feishu integration
+  - Verify captcha-solver health and accessibility
 
 **Section sources**
 - [setup.sh:1-150](file://setup.sh#L1-L150)
@@ -543,15 +617,14 @@ The daily workflow orchestration integrates a robust shell orchestrator, a resil
 - [config/companies.txt:1-6](file://config/companies.txt#L1-L6)
 
 ### Monitoring Approaches
-- Logs:
-  - Orchestrator writes to a dated log file and prints summary location
-- Summaries:
-  - Daily summary JSON aggregated per subsite for downstream AI consumption
-- Health checks:
-  - Captcha solver health endpoint and lark-cli auth check included in orchestrator
-- **Phase B Monitoring**:
-  - Detailed logging of missing screenshot counts and recovery progress
-  - Success/failure counters for targeted recovery operations
+**Updated** Enhanced monitoring with modular CLI integration
+
+**Comprehensive Monitoring:**
+- **Execution Logs**: Orchestrator writes to dated log files with detailed execution traces
+- **Summary Reports**: Daily summary JSON with execution statistics and status
+- **Health Checks**: Integrated captcha-solver health endpoint and lark-cli authentication
+- **Performance Metrics**: Built-in performance monitoring and execution timing
+- **Backfill Monitoring**: Detailed progress tracking for screenshot recovery operations
 
 **Section sources**
 - [cron_daily_query.sh:35-40](file://cron_daily_query.sh#L35-L40)
@@ -559,56 +632,53 @@ The daily workflow orchestration integrates a robust shell orchestrator, a resil
 - [captcha-solver/main.py:107-109](file://captcha-solver/main.py#L107-L109)
 
 ### Backup and Recovery
-- Local backup:
-  - SQLite database serves as primary local backup; consider periodic off-machine copies
-- Cleanup policy:
-  - Orchestrator removes old progress, single-company JSON, summary JSON, batch JSON, and screenshots older than thresholds
-- Recovery:
-  - Re-run orchestrator to regenerate missing summaries and backfill screenshots if Feishu was enabled
-- **Phase B Recovery**:
-  - ScreenshotBackfiller automatically handles partial failures and continues with remaining records
-  - Progress tracking enables resuming interrupted backfill operations
+**Updated** Enhanced backup strategies with modular architecture
+
+**Comprehensive Backup Strategy:**
+- **Local Database Backup**: SQLite database serves as primary local backup
+- **Configuration Backup**: YAML configuration files with version control
+- **Execution Artifacts**: Temporary files and progress tracking for recovery
+- **Recovery Procedures**: Automated reprocessing of failed executions
+- **Incremental Updates**: Support for breakpoint continuation and partial recovery
 
 **Section sources**
 - [writers/sqlite.py:37-100](file://writers/sqlite.py#L37-L100)
 - [cron_daily_query.sh:233-239](file://cron_daily_query.sh#L233-L239)
-- [zxgk/backfill.py:142-191](file://zxgk/backfill.py#L142-L191)
 
 ### Customization and Extension
-- Add new subsites:
-  - Extend [config/zxgk.yaml](file://config/zxgk.yaml) subsites section with name, CSS selector, and extra wait seconds
-- Modify storage:
-  - Use [writers/sqlite.py](file://writers/sqlite.py) or implement a new writer module under [writers/](file://writers/)
-- Integrate new outputs:
-  - Extend orchestrator to call additional writers or post-processing scripts
-- Diagnose DOM changes:
-  - Use [diagnose_subsites.py](file://diagnose_subsites.py) to probe and update selectors
-- **Extend Backfill Capabilities**:
-  - Modify ScreenshotBackfiller to handle additional screenshot types or different storage systems
-  - Adjust company grouping logic for different processing patterns
-  - Customize error handling and retry strategies for specific environments
+**Updated** Modular architecture enables enhanced customization
+
+**Extensibility Features:**
+- **New Subsites**: Extend config/zxgk.yaml subsites section with custom configurations
+- **Storage Writers**: Implement new storage backends using writers/__init__.py interface
+- **Execution Modes**: Add new execution patterns through CLI mode extensions
+- **Diagnostic Tools**: Enhance diagnose_subsites.py for custom DOM validation
+- **Backfill Extensions**: Customize ScreenshotBackfiller for specialized recovery scenarios
 
 **Section sources**
 - [config/zxgk.yaml:28-42](file://config/zxgk.yaml#L28-L42)
 - [writers/__init__.py:1-10](file://writers/__init__.py#L1-L10)
 - [diagnose_subsites.py:25-48](file://diagnose_subsites.py#L25-L48)
-- [zxgk/backfill.py:12-296](file://zxgk/backfill.py#L12-L296)
+- [zxgk/backfill.py:12-281](file://zxgk/backfill.py#L12-L281)
 
-### Two-Phase Workflow Details
-**Phase A (Initial Collection)**:
-- Executes batch queries across all three subsites
-- Captures screenshots during initial data collection
-- Writes raw tables to Feishu with cross-references
-- Generates comprehensive batch JSON for downstream processing
+### Advanced Execution Patterns
+**New** Enhanced execution capabilities with modular CLI architecture
 
-**Phase B (Screenshot Recovery)**:
-- Queries Feishu case master table for missing screenshots
-- Resolves real viewIds from DuplexLink relationships
-- Performs targeted re-captures and uploads
-- Updates case master records with recovered screenshots
-- Provides granular progress tracking and error reporting
+**Execution Modes:**
+- **Sequential Mode**: Traditional step-by-step execution with detailed logging
+- **Parallel Mode**: Python 3.11+ async/await support for concurrent subsite processing
+- **Backfill Mode**: Dedicated phase B screenshot recovery with intelligent detection
+- **Diagnostic Mode**: Comprehensive system health and configuration validation
+- **Resume Mode**: Breakpoint continuation for long-running operations
+
+**Performance Optimization:**
+- **Rate Limiting**: Configurable rate limiting to prevent WAF detection
+- **Thread Pool Management**: Efficient parallel execution with proper resource allocation
+- **Session Reuse**: Intelligent browser session management for reduced overhead
+- **Memory Management**: Optimized memory usage through proper object lifecycle
 
 **Section sources**
-- [cron_daily_query.sh:213-228](file://cron_daily_query.sh#L213-L228)
-- [zxgk/backfill.py:12-296](file://zxgk/backfill.py#L12-L296)
-- [writers/feishu.py:44-85](file://writers/feishu.py#L44-L85)
+- [zxgk/cli.py:227-397](file://zxgk/cli.py#L227-L397)
+- [zxgk/async_runner.py:345-395](file://zxgk/async_runner.py#L345-L395)
+- [zxgk/runner.py:45-142](file://zxgk/runner.py#L45-L142)
+- [zxgk/backfill.py:271-281](file://zxgk/backfill.py#L271-L281)

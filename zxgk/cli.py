@@ -56,8 +56,8 @@ def run_diagnose(config, subsite):
     finally:
         try:
             bm.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("diagnose browser close: %s", e)
 
     # Step 3: playwright-stealth 版本
     print(f"[3] playwright-stealth ... ", end="", flush=True)

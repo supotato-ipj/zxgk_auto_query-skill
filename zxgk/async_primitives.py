@@ -9,10 +9,15 @@ ThreadWafCircuitBreaker — thread-safe circuit breaker for multi-thread coordin
 
 import asyncio
 import logging
+import os
 import threading
 import time
+from pathlib import Path
 
 logger = logging.getLogger("zxgk_query")
+
+# WAF cooldown state file — survives process restarts
+_WAF_COOLDOWN_FILE = Path("/tmp/zxgk_waf_cooldown_until")
 
 
 class RateGate:
@@ -149,13 +154,44 @@ class ThreadWafCircuitBreaker:
 
     Uses threading.Event + threading.Lock for multi-thread coordination.
     When ANY subsite hits WAF, trip() pauses ALL threads for cooldown_sec.
+    Cooldown state is persisted to /tmp/zxgk_waf_cooldown_until so restarted
+    processes respect the remaining cooldown period.
     """
 
     def __init__(self, cooldown_sec: int = 300):
         self._cooldown = cooldown_sec
         self._lock = threading.Lock()
         self._event = threading.Event()
+
+        # Check persisted cooldown state from a previous run
+        if _WAF_COOLDOWN_FILE.exists():
+            try:
+                until_ts = float(_WAF_COOLDOWN_FILE.read_text().strip())
+                remaining = until_ts - time.time()
+                if remaining > 0:
+                    logger.warning(
+                        "WAF 断路器从上次进程继承冷却状态，剩余 %d 秒",
+                        int(remaining)
+                    )
+                    self._cooldown = max(self._cooldown, int(remaining))
+                    self._event.clear()
+                    threading.Thread(target=self._persisted_reset, daemon=True).start()
+                    return
+                else:
+                    _WAF_COOLDOWN_FILE.unlink(missing_ok=True)
+            except (ValueError, OSError) as e:
+                logger.debug("读取 WAF 冷却文件失败: %s", e)
+                _WAF_COOLDOWN_FILE.unlink(missing_ok=True)
+
         self._event.set()  # initially not blocked
+
+    def _persisted_reset(self):
+        """Auto-reset after inherited cooldown expires."""
+        time.sleep(self._cooldown)
+        with self._lock:
+            _WAF_COOLDOWN_FILE.unlink(missing_ok=True)
+            self._event.set()
+        logger.info("WAF 断路器从持久化状态已重置 — 恢复查询")
 
     def check(self) -> bool:
         """Return True if requests are allowed, False if in WAF cooldown."""
@@ -168,9 +204,16 @@ class ThreadWafCircuitBreaker:
                 return  # already tripped by another thread
             self._event.clear()
 
+        # Persist cooldown end time so a restarted process can inherit it
+        try:
+            _WAF_COOLDOWN_FILE.write_text(str(time.time() + self._cooldown))
+        except OSError as e:
+            logger.debug("写入 WAF 冷却文件失败: %s", e)
+
         logger.warning("WAF 断路器跳闸 — 所有子站暂停 %ds", self._cooldown)
         time.sleep(self._cooldown)
 
         with self._lock:
+            _WAF_COOLDOWN_FILE.unlink(missing_ok=True)
             self._event.set()
         logger.info("WAF 断路器已重置 — 恢复查询")

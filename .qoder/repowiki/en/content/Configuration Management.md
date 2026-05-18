@@ -20,11 +20,11 @@
 
 ## Update Summary
 **Changes Made**
-- Updated configuration loading system to use new centralized config.py module
-- Added comprehensive environment variable expansion support with ${VAR} syntax
-- Enhanced validation rules and runtime precedence handling
-- Updated YAML schema documentation with new fields and structure
-- Revised integration examples to reflect new configuration management approach
+- Updated configuration loading system to use new centralized config.py module with enhanced environment variable expansion
+- Added comprehensive YAML schema documentation with current field definitions and structure
+- Revised integration examples to reflect streamlined configuration management approach
+- Enhanced security documentation for environment variable handling
+- Updated troubleshooting guidance for modern configuration system
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -39,7 +39,7 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the comprehensive YAML-based configuration management system for the execution information query system. The new configuration system, centered around a 103-line configuration module in `zxgk/config.py`, provides robust environment variable expansion, validation rules, and runtime precedence handling. It covers the complete configuration schema including subsite definitions, output preferences, security parameters, and integration with output writers. The system emphasizes security through environment variable handling for sensitive data and provides clear validation mechanisms for reliable operation across different environments.
+This document explains the comprehensive YAML-based configuration management system for the execution information query system. The new configuration system, centered around a 104-line configuration module in `zxgk/config.py`, provides robust environment variable expansion, validation rules, and runtime precedence handling. It covers the complete configuration schema including subsite definitions, output preferences, security parameters, and integration with output writers. The system emphasizes security through environment variable handling for sensitive data and provides clear validation mechanisms for reliable operation across different environments.
 
 ## Project Structure
 The configuration system now centers around a unified configuration module that handles:
@@ -51,7 +51,7 @@ The configuration system now centers around a unified configuration module that 
 
 ```mermaid
 graph TB
-ConfigModule["zxgk/config.py<br/>103 lines"]
+ConfigModule["zxgk/config.py<br/>104 lines"]
 YAMLFile["config/zxgk.yaml"]
 EnvVars["Environment Variables"]
 CompanyList["config/companies.txt<br/>or companies.yaml"]

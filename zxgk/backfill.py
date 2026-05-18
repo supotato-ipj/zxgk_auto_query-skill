@@ -68,7 +68,7 @@ class ScreenshotBackfiller:
         filter_payload = {
             "conjunction": "and",
             "conditions": [
-                {"field_name": wtb.CASE_FIELD_SCREENSHOT, "operator": "isEmpty"}
+                {"field_name": wtb.CASE_FIELD_SCREENSHOT, "operator": "isEmpty", "value": []}
             ],
         }
         path = f"/open-apis/bitable/v1/apps/{wtb.APP_TOKEN}/tables/{wtb.CASE_TABLE}/records/search"
@@ -148,8 +148,9 @@ class ScreenshotBackfiller:
             for company, entries in by_company.items():
                 logger.info("--- 公司: %s (%d 条) ---", company, len(entries))
 
-                # 搜索公司，过验证码
-                if not self._search_company(bm.page, solver, company):
+                # 搜索公司，获取 viewId → row_index 映射
+                found, viewid_map = self._search_company(bm.page, solver, company)
+                if not found:
                     logger.warning("搜索失败: %s，跳过该公司 %d 条", company, len(entries))
                     fail += len(entries)
                     continue
@@ -159,8 +160,18 @@ class ScreenshotBackfiller:
                     png_path = screenshots_dir / f"detail_{view_id}.png"
                     logger.info("  viewId=%s case=%s", view_id, case_no)
 
-                    # showDetail → 截图 → 关弹窗
-                    if not self._capture_detail(bm.page, view_id, str(png_path)):
+                    row_idx = viewid_map.get(view_id)
+                    if row_idx is None:
+                        # viewId 不在当前搜索结果中 → 单独精确搜索
+                        logger.info("  viewId=%s 不在当前页，单独搜索定位", view_id)
+                        if not self._search_by_viewid(bm.page, view_id):
+                            logger.warning("  无法定位 viewId=%s，跳过", view_id)
+                            fail += 1
+                            continue
+                        row_idx = 0  # 精确查询后只有 1 条
+
+                    # 通过行索引点击 → 弹窗 → 截图 → 关弹窗
+                    if not self._capture_detail(bm.page, view_id, row_idx, str(png_path)):
                         logger.warning("  截图失败")
                         fail += 1
                         continue
@@ -191,7 +202,10 @@ class ScreenshotBackfiller:
         logger.info("Phase B 完成: ✅ %d, ❌ %d", success, fail)
 
     def _search_company(self, page, solver, company):
-        """在 zhixing 子站搜索公司名，过验证码。返回 True/False"""
+        """在 zhixing 子站搜索公司名，过验证码。
+
+        返回 (success, {viewId: row_index}) — viewId 映射供 _capture_detail 按行索引点击。
+        """
         max_retries = self.config.get("waf", {}).get("captcha_max_retries", 5)
         for attempt in range(max_retries):
             page.fill("#pName", company)
@@ -229,27 +243,73 @@ class ScreenshotBackfiller:
                 continue
             if "没有找到" in body:
                 logger.info("  无结果")
-                return False
+                return False, {}
 
             rows = page.evaluate(
                 '() => document.querySelectorAll("#tbody-result tr").length')
             if rows > 0:
                 logger.info("  查询成功: %d 条", rows)
-                return True
+                # 实时提取 viewId → row_index 映射
+                viewid_map = page.evaluate("""() => {
+                    const map = {};
+                    const rows = document.querySelectorAll('#tbody-result tr');
+                    rows.forEach((r, i) => {
+                        const a = r.querySelector('a[onclick]');
+                        if (a) {
+                            const m = a.getAttribute('onclick').match(/showDetail\\((\\d+)\\)/);
+                            if (m) map[m[1]] = i;
+                        }
+                    });
+                    return map;
+                }""")
+                return True, {k: int(v) for k, v in viewid_map.items()}
 
             logger.debug("  rows=0 (attempt %d)", attempt + 1)
             solver.refresh(page)
 
+        return False, {}
+
+    def _search_by_viewid(self, page, view_id):
+        """在当前搜索结果中翻页查找指定 viewId。找到后点击打开弹窗并返回 True。"""
+        max_pages = 5
+        for page_num in range(max_pages):
+            found = page.evaluate(f"""
+                () => {{
+                    const a = document.querySelector(
+                        'a[onclick*="showDetail({view_id})"]');
+                    if (a) {{ a.click(); return true; }}
+                    return false;
+                }}
+            """)
+            if found:
+                return True
+            # 尝试翻页
+            has_next = page.evaluate("""
+                () => {
+                    const btn = document.getElementById('next-btn');
+                    return btn && !btn.disabled && btn.offsetParent !== null;
+                }
+            """)
+            if not has_next:
+                break
+            page.evaluate("nextPage()")
+            time.sleep(1)
         return False
 
-    def _capture_detail(self, page, view_id, output_path):
-        """showDetail(viewId) → 等弹窗 → 截图 → 关弹窗。返回 True/False"""
+    def _capture_detail(self, page, view_id, row_index, output_path):
+        """通过行索引精准点击表格行打开详情弹窗 → 等弹窗 → 截图 → 关弹窗。
+
+        不再依赖 showDetail() 全局函数（缺少 DOM 点击上下文会导致后端返回错误数据）。
+        """
         ok = page.evaluate(f"""
             () => {{
-                const el = document.querySelector('a[onclick*="showDetail({view_id})"]');
-                if (el) {{ el.click(); return true; }}
-                if (typeof showDetail === 'function') {{ showDetail({view_id}); return true; }}
-                return false;
+                const rows = document.querySelectorAll('#tbody-result tr');
+                const row = rows[{row_index}];
+                if (!row) return false;
+                const a = row.querySelector('a[onclick]');
+                if (!a) return false;
+                a.click();
+                return true;
             }}
         """)
         if not ok:

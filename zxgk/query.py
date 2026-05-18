@@ -1,4 +1,5 @@
 """QueryEngine — 查询引擎：填表、OCR、提交、翻页收集"""
+
 import time
 
 from .config import logger, parse_chinese_date
@@ -53,7 +54,7 @@ def dismiss_dialogs(page, max_iterations=8):
         )
         if remaining == 0:
             break
-        time.sleep(0.5)
+        page.wait_for_timeout(500)
 
 
 class QueryEngine:
@@ -63,15 +64,40 @@ class QueryEngine:
     （BatchRunner 在每个公司查询前自动刷新，run_single 刚完成导航验证码本就新鲜）。
     """
 
-    def __init__(self, page, captcha_solver, max_retries=5, subsite="zhixing"):
+    def __init__(self, page, captcha_solver, max_retries=5, subsite="zhixing",
+                 empty_result_max_retries=2):
         self.page = page
         self.solver = captcha_solver
         self.max_retries = max_retries
         self.subsite = subsite
+        self.empty_result_max_retries = empty_result_max_retries
 
     def query(self, company):
         """查询 + 翻页收集所有结果，viewId 去重。返回 list[dict]"""
+        last_failure_type = None
+        consecutive_same_failure = 0
+        empty_retries = 0
+
         for attempt in range(self.max_retries):
+            # 渐进等待（按总次数 3 等分：1s / 3s / 5s）
+            fast_end = max(1, self.max_retries // 3)
+            cooldown_end = max(fast_end + 1, 2 * self.max_retries // 3)
+            if attempt < fast_end:
+                time.sleep(1)
+            elif attempt < cooldown_end:
+                time.sleep(3)
+            else:
+                time.sleep(5)
+
+            # 最后 2 次尝试重建导航
+            if attempt >= self.max_retries - 2:
+                logger.info("重建导航: %s", self.subsite)
+                self.page.goto(
+                    f"https://zxgk.court.gov.cn/{self.subsite}/",
+                    wait_until="networkidle",
+                )
+                time.sleep(3)
+
             try:
                 logger.info("查询尝试 %d/%d: %s", attempt + 1, self.max_retries, company)
 
@@ -88,6 +114,11 @@ class QueryEngine:
                 if not cap:
                     logger.warning("未找到验证码图片，刷新后重试")
                     self.solver.refresh(self.page)
+                    last_failure_type, consecutive_same_failure = self._track_failure(
+                        "no_captcha", last_failure_type, consecutive_same_failure
+                    )
+                    if consecutive_same_failure == 0:
+                        continue
                     continue
 
                 text, conf = self.solver.solve(cap)
@@ -96,10 +127,20 @@ class QueryEngine:
                 if not text or not text.strip():
                     logger.warning("OCR 返回空字符串，跳过提交，刷新后重试")
                     self.solver.refresh(self.page)
+                    last_failure_type, consecutive_same_failure = self._track_failure(
+                        "ocr_empty", last_failure_type, consecutive_same_failure
+                    )
+                    if consecutive_same_failure == 0:
+                        continue
                     continue
                 if conf is not None and conf < 0.3:
                     logger.warning("OCR 置信度过低 (%.3f)，跳过提交", conf)
                     self.solver.refresh(self.page)
+                    last_failure_type, consecutive_same_failure = self._track_failure(
+                        "ocr_low_conf", last_failure_type, consecutive_same_failure
+                    )
+                    if consecutive_same_failure == 0:
+                        continue
                     continue
 
                 self.page.fill("#yzm", text)
@@ -111,17 +152,41 @@ class QueryEngine:
                     '() => document.getElementById("result-block")?.innerText || ""'
                 )
                 if "没有找到" in result_text:
-                    logger.info("查询无结果（没有找到匹配记录）: %s", company)
+                    if empty_retries < self.empty_result_max_retries:
+                        logger.warning(
+                            "查询返回'没有找到'(empty_retry %d/%d): %s",
+                            empty_retries + 1, self.empty_result_max_retries, company,
+                        )
+                        empty_retries += 1
+                        self.solver.refresh(self.page)
+                        time.sleep(2)
+                        continue
+                    logger.info("查询无结果（经 %d 次重试确认）: %s", empty_retries + 1, company)
                     return []
                 if "验证码错误" in result_text or "验证码已过期" in result_text:
                     logger.info("验证码被拒（%s），刷新后重试", result_text[:60].replace("\n", " "))
+                    self.page.fill("#yzm", "")
                     self.solver.refresh(self.page)
+                    last_failure_type, consecutive_same_failure = self._track_failure(
+                        "captcha_rejected", last_failure_type, consecutive_same_failure
+                    )
+                    if consecutive_same_failure == 0:
+                        continue
                     continue
                 page_text = self.page.evaluate(
                     '() => (document.body?.innerText || "").substring(0, 500)'
                 )
                 if "没有找到" in page_text:
-                    logger.info("查询无结果（没有找到匹配记录）: %s", company)
+                    if empty_retries < self.empty_result_max_retries:
+                        logger.warning(
+                            "页面文本含'没有找到'(empty_retry %d/%d): %s",
+                            empty_retries + 1, self.empty_result_max_retries, company,
+                        )
+                        empty_retries += 1
+                        self.solver.refresh(self.page)
+                        time.sleep(2)
+                        continue
+                    logger.info("查询无结果（经 %d 次重试确认）: %s", empty_retries + 1, company)
                     return []
 
                 rows = self.page.evaluate(
@@ -134,22 +199,60 @@ class QueryEngine:
                     logger.info("查询成功: %d 条记录", len(records))
                     return records
 
-                logger.debug("rows=0，刷新验证码重试")
-                self.solver.refresh(self.page)
+                if rows == 0:
+                    if conf is not None and conf < 0.65:
+                        logger.warning(
+                            "rows=0 且置信度低(%.3f)，验证码可能识错，重试验证", conf
+                        )
+                    else:
+                        logger.debug(
+                            "rows=0 置信度(%.3f)，可能是静默验证码错误，刷新重试", conf
+                        )
+                    if empty_retries < self.empty_result_max_retries:
+                        empty_retries += 1
+                        self.solver.refresh(self.page)
+                        time.sleep(1)
+                        continue
+                    logger.info("rows=0 经 %d 次重试确认，接受为真无记录", empty_retries + 1)
+                    return []
 
             except Exception as e:
                 logger.warning("查询异常 (attempt %d/%d): %s", attempt + 1, self.max_retries, e)
                 self.solver.refresh(self.page)
+                last_failure_type, consecutive_same_failure = self._track_failure(
+                    "exception", last_failure_type, consecutive_same_failure
+                )
+                if consecutive_same_failure == 0:
+                    continue
 
         logger.warning("查询全部失败（%d 次重试）: %s", self.max_retries, company)
         return []
+
+    def _track_failure(self, failure_type, last_failure_type, consecutive_same_failure):
+        """追踪连续同类型失败，触发升级时重置计数器。返回 (last_type, count)"""
+        if failure_type == last_failure_type:
+            consecutive_same_failure += 1
+        else:
+            consecutive_same_failure = 1
+            last_failure_type = failure_type
+
+        if consecutive_same_failure >= 3:
+            logger.warning(
+                "连续 %d 次同类型失败(%s)，重载页面",
+                consecutive_same_failure, failure_type,
+            )
+            self.page.reload()
+            time.sleep(2)
+            return (None, 0)
+
+        return (last_failure_type, consecutive_same_failure)
 
     def _submit(self):
         for _ in range(5):
             ready = self.page.evaluate('() => typeof search === "function"')
             if ready:
                 break
-            time.sleep(0.5)
+            self.page.wait_for_timeout(500)
         else:
             raise RuntimeError("search() 未定义，页面可能未加载完成")
 
@@ -158,7 +261,6 @@ class QueryEngine:
         except Exception:
             logger.debug("initCurrentPage 不可用，跳过")
         self.page.evaluate("search()")
-        time.sleep(2)
         self._dismiss_dialogs()
         try:
             self.page.wait_for_load_state("networkidle", timeout=15000)
@@ -227,7 +329,7 @@ class QueryEngine:
                 logger.warning("翻页后无新增 viewId，翻页可能失效")
 
             self.page.evaluate("nextPage()")
-            time.sleep(3)
+            self.page.wait_for_timeout(2000)
             try:
                 self.page.wait_for_load_state("networkidle", timeout=10000)
             except Exception:

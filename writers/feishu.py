@@ -482,12 +482,21 @@ def upload_screenshots_for_records(records, screenshots_dir, subsite):
 # ============================================================================
 
 def _extract_text(val):
-    """提取飞书 Text 字段的值"""
-    if isinstance(val, list) and len(val) > 0:
-        item = val[0]
-        if isinstance(item, dict) and "text" in item:
-            return item["text"]
-        return str(item)
+    """提取飞书 Text 字段的值（兼容 lark-cli type/value 嵌套格式）"""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, list):
+        parts = []
+        for item in val:
+            if isinstance(item, dict):
+                parts.append(item.get("text", ""))
+            else:
+                parts.append(str(item))
+        return " ".join(parts)
+    if isinstance(val, dict):
+        if "value" in val:
+            return _extract_text(val["value"])
+        return val.get("text", "")
     return str(val) if val else ""
 
 

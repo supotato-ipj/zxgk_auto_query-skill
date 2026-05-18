@@ -4,23 +4,25 @@
 **Referenced Files in This Document**
 - [zxgk/cli.py](file://zxgk/cli.py)
 - [zxgk_query.py](file://zxgk_query.py)
+- [zxgk/async_runner.py](file://zxgk/async_runner.py)
+- [zxgk/runner.py](file://zxgk/runner.py)
+- [zxgk/backfill.py](file://zxgk/backfill.py)
+- [zxgk/async_primitives.py](file://zxgk/async_primitives.py)
+- [writers/feishu.py](file://writers/feishu.py)
 - [README.md](file://README.md)
 - [config/zxgk.example.yaml](file://config/zxgk.example.yaml)
 - [config/companies.example.txt](file://config/companies.example.txt)
 - [cron_daily_query.sh](file://cron_daily_query.sh)
-- [writers/feishu.py](file://writers/feishu.py)
-- [zxgk/config.py](file://zxgk/config.py)
-- [zxgk/runner.py](file://zxgk/runner.py)
-- [zxgk/backfill.py](file://zxgk/backfill.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Complete rewrite of CLI architecture with modular design in zxgk/cli.py
-- New structured command-line interaction with validation, error handling, and output formatting
-- Enhanced operational modes including single queries, batch processing, backfill operations, and diagnostic functions
-- Improved argument parsing with comprehensive validation rules
+- Complete rewrite of CLI architecture with modular design in zxgk/cli.py featuring 397 lines of new code
+- Enhanced async capabilities with ThreadPoolExecutor-based parallel execution for three subsites
+- Structured execution modes including single queries, batch processing, backfill operations, and diagnostic functions
+- Improved argument parsing with comprehensive validation rules and new async mode support
 - Streamlined entry point through zxgk_query.py delegating to modular CLI
+- Added ThreadRateGate and ThreadWafCircuitBreaker for coordinated rate limiting and WAF protection
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -35,10 +37,10 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document provides a comprehensive CLI interface reference for the main command-line tool that automates querying China Execution Information Public Network (zxgk.court.gov.cn) across three subsites: "Executed Person", "Dishonest Executed Person", and "Restricted Consumption Personnel". The CLI has been completely rewritten with a modular architecture featuring 320 lines of new code in zxgk/cli.py, introducing structured command-line interaction with validation, error handling, and output formatting.
+This document provides a comprehensive CLI interface reference for the main command-line tool that automates querying China Execution Information Public Network (zxgk.court.gov.cn) across three subsites: "Executed Person", "Dishonest Executed Person", and "Restricted Consumption Personnel". The CLI has been completely rewritten with a modular architecture featuring 397 lines of new code in zxgk/cli.py, introducing enhanced async capabilities, structured command-line interaction with validation, error handling, and output formatting.
 
 ## Project Structure
-The CLI tool now follows a modular architecture with clear separation of concerns. The main entry point delegates to a centralized CLI module that orchestrates different operational modes with robust validation and error handling.
+The CLI tool now follows a modular architecture with clear separation of concerns. The main entry point delegates to a centralized CLI module that orchestrates different operational modes with robust validation and error handling. The new architecture supports both synchronous and asynchronous execution modes.
 
 ```mermaid
 graph TB
@@ -46,18 +48,22 @@ Entry["Entry Point<br/>zxgk_query.py"] --> CLI["CLI Module<br/>zxgk/cli.py"]
 CLI --> Parser["Argument Parser<br/>build_parser()"]
 Parser --> Single["Single Mode<br/>run_single()"]
 Parser --> Batch["Batch Mode<br/>run_batch()"]
+Parser --> AsyncBatch["Async Batch Mode<br/>run_async_batch()"]
 Parser --> Backfill["Backfill Mode<br/>run_backfill()"]
 Parser --> Diagnose["Diagnose Mode<br/>run_diagnose()"]
 Single --> Config["Configuration Loader"]
 Single --> Engine["Query Engine"]
 Single --> Browser["Browser Manager"]
 Single --> Captcha["Captcha Solver"]
-Batch --> Runner["Batch Runner"]
+Batch --> Runner["BatchRunner<br/>zxgk/runner.py"]
+AsyncBatch --> AsyncRunner["AsyncBatchRunner<br/>zxgk/async_runner.py"]
+AsyncRunner --> RateGate["ThreadRateGate<br/>zxgk/async_primitives.py"]
+AsyncRunner --> CircuitBreaker["ThreadWafCircuitBreaker<br/>zxgk/async_primitives.py"]
 Runner --> Config
 Runner --> Engine
 Runner --> Browser
 Runner --> Captcha
-Backfill --> Backfiller["Screenshot Backfiller"]
+Backfill --> Backfiller["ScreenshotBackfiller<br/>zxgk/backfill.py"]
 Backfiller --> Config
 Backfiller --> Browser
 Backfiller --> Captcha
@@ -68,29 +74,33 @@ Diagnose --> Captcha
 
 **Diagram sources**
 - [zxgk_query.py:21-26](file://zxgk_query.py#L21-L26)
-- [zxgk/cli.py:225-321](file://zxgk/cli.py#L225-L321)
+- [zxgk/cli.py:225-397](file://zxgk/cli.py#L225-L397)
 
 **Section sources**
 - [zxgk_query.py:21-26](file://zxgk_query.py#L21-L26)
-- [zxgk/cli.py:225-321](file://zxgk/cli.py#L225-L321)
+- [zxgk/cli.py:225-397](file://zxgk/cli.py#L225-L397)
 
 ## Core Components
-- **Centralized CLI Module**: The new modular architecture in zxgk/cli.py provides structured command-line interaction with comprehensive validation and error handling.
-- **Argument Parser**: Enhanced argument parsing with validation rules, mode-specific options, and comprehensive help text.
+- **Centralized CLI Module**: The new modular architecture in zxgk/cli.py provides structured command-line interaction with comprehensive validation and error handling, supporting both synchronous and asynchronous execution modes.
+- **Enhanced Argument Parser**: Comprehensive argument parsing with validation rules, mode-specific options, and support for new async parallel execution.
 - **Single Query Runner**: Executes individual company searches with optional screenshots and cloud storage integration.
 - **Batch Runner**: Processes company lists with retry logic, WAF resilience, progress tracking, and optional cloud storage integration.
+- **Async Batch Runner**: **New** - Concurrently processes multiple subsites using ThreadPoolExecutor with coordinated rate limiting and WAF protection.
 - **Backfill Runner**: Re-queries missing screenshots for previously collected records using sophisticated Feishu integration.
 - **Diagnostic System**: Comprehensive health checks for OCR services, WAF readiness, and environment dependencies.
 - **Configuration Management**: Centralized configuration loading with environment variable expansion and validation.
 - **Company List Processing**: Flexible company list loading supporting both YAML arrays and plain-text formats.
+- **Concurrency Primitives**: **New** - ThreadRateGate and ThreadWafCircuitBreaker for coordinated rate limiting and WAF protection across parallel executions.
 
 **Section sources**
-- [zxgk/cli.py:86-321](file://zxgk/cli.py#L86-L321)
-- [zxgk/runner.py:15-278](file://zxgk/runner.py#L15-L278)
-- [zxgk/backfill.py:12-296](file://zxgk/backfill.py#L12-L296)
+- [zxgk/cli.py:86-397](file://zxgk/cli.py#L86-L397)
+- [zxgk/runner.py:15-275](file://zxgk/runner.py#L15-L275)
+- [zxgk/async_runner.py:1-395](file://zxgk/async_runner.py#L1-L395)
+- [zxgk/backfill.py:12-281](file://zxgk/backfill.py#L12-L281)
+- [zxgk/async_primitives.py:18-177](file://zxgk/async_primitives.py#L18-L177)
 
 ## Architecture Overview
-The new modular CLI architecture provides a clean separation of concerns with specialized runners for each operational mode. The system maintains backward compatibility while introducing enhanced validation, error handling, and output formatting capabilities.
+The new modular CLI architecture provides a clean separation of concerns with specialized runners for each operational mode. The system maintains backward compatibility while introducing enhanced validation, error handling, output formatting capabilities, and **new async parallel execution support**.
 
 ```mermaid
 sequenceDiagram
@@ -121,6 +131,19 @@ CLI->>Storage : write per-company JSON + screenshots
 end
 CLI->>Storage : write merged batch JSON
 CLI-->>User : Exit code
+else Async Batch Mode (--async)
+CLI->>Browser : launch() + navigate()
+par Parallel Execution
+CLI->>Engine : query(company) [Subsite 1]
+CLI->>Engine : query(company) [Subsite 2]
+CLI->>Engine : query(company) [Subsite 3]
+and Rate Limiting & WAF Protection
+CLI->>RateGate : acquire() [Shared]
+CLI->>CircuitBreaker : check() [Shared]
+end
+Engine-->>CLI : records
+CLI->>Storage : write merged batch JSON
+CLI-->>User : Exit code
 else Backfill Mode
 CLI->>Backfiller : ScreenshotBackfiller.run()
 Backfiller->>Browser : navigate(zhixing)
@@ -136,13 +159,13 @@ end
 ```
 
 **Diagram sources**
-- [zxgk/cli.py:281-321](file://zxgk/cli.py#L281-L321)
+- [zxgk/cli.py:286-352](file://zxgk/cli.py#L286-L352)
 - [zxgk/cli.py:181-220](file://zxgk/cli.py#L181-L220)
 
 ## Detailed Component Analysis
 
 ### CLI Arguments and Modes
-The new modular CLI introduces comprehensive argument parsing with enhanced validation and mode-specific options:
+The new modular CLI introduces comprehensive argument parsing with enhanced validation and mode-specific options, including **new async parallel execution support**:
 
 **Global Options**
 - `--config PATH`: Configuration file path (default: config/zxgk.yaml)
@@ -186,16 +209,22 @@ The new modular CLI introduces comprehensive argument parsing with enhanced vali
 - `--diagnose`: Run comprehensive diagnostics for OCR, WAF, and environment
 - `--subsite {zhixing,shixin,xgl}`: Subsite to diagnose
 
+**Async Mode Options**
+- `--async/--parallel`: **New** - Enable asynchronous concurrent execution across all three subsites
+- Requires Python 3.11+ for asyncio.TaskGroup support
+
 **Enhanced Validation Rules**
 - Single mode: Requires --company, disallows --batch
 - Batch mode: Requires --batch, disallows --company
 - Backfill mode: Requires --batch-id with {YYYYMMDD}-{subsite} format
 - Full mode: Automatically enables --feishu
+- Async mode: Requires Python 3.11+ and --batch option
 - Mode conflicts: --company and --batch cannot be used together
 
 **Output Formats**
 - Single mode: Writes individual JSON files with embedded screenshot mappings
 - Batch mode: Writes per-company JSON files and merged batch JSON
+- Async mode: **New** - Writes separate batch JSON files for each subsite
 - Screenshots: Captured PNG images with automatic cropping and cleanup
 - Backfill mode: Re-queries missing screenshots and uploads to Feishu
 
@@ -207,8 +236,47 @@ The new modular CLI introduces comprehensive argument parsing with enhanced vali
 - `4`: Configuration/argument error
 
 **Section sources**
-- [zxgk/cli.py:225-321](file://zxgk/cli.py#L225-L321)
+- [zxgk/cli.py:225-397](file://zxgk/cli.py#L225-L397)
 - [zxgk/cli.py:25-83](file://zxgk/cli.py#L25-L83)
+
+### Async Execution Architecture
+**New** - The CLI now supports asynchronous concurrent execution across all three subsites using ThreadPoolExecutor:
+
+**Async Execution Flow**
+```mermaid
+graph TB
+AsyncCLI["Async CLI<br/>run_async_batch()"] --> CheckPython["Check Python 3.11+"]
+CheckPython --> LoadCompanies["Load Company List"]
+LoadCompanies --> SetupEnv["Setup Environment"]
+SetupEnv --> CreateGate["Create ThreadRateGate"]
+CreateGate --> CreateBreaker["Create ThreadWafCircuitBreaker"]
+CreateBreaker --> CreateWorkers["Create ThreadPoolExecutor"]
+CreateWorkers --> ExecuteSubsites["Execute Subsites in Parallel"]
+ExecuteSubsites --> RateLimit["ThreadRateGate.acquire()"]
+ExecuteSubsites --> WAFCheck["ThreadWafCircuitBreaker.check()"]
+RateLimit --> QueryEngine["QueryEngine.query()"]
+WAFCheck --> QueryEngine
+QueryEngine --> CaptureScreenshots["DetailScreenshot.capture_all()"]
+CaptureScreenshots --> WriteFeishu["Write to Feishu"]
+WriteFeishu --> AggregateResults["Aggregate Results"]
+AggregateResults --> ReturnCode["Return Exit Code"]
+```
+
+**Async Concurrency Primitives**
+- **ThreadRateGate**: Sliding-window rate limiter coordinating company query intervals across all threads
+- **ThreadWafCircuitBreaker**: Coordinated WAF cooldown across all subsite threads
+- **ThreadPoolExecutor**: Manages worker threads for each subsite execution
+
+**Async Execution Benefits**
+- **Parallel Processing**: Three subsites (zhixing, shixin, xgl) execute simultaneously
+- **Coordinated Rate Limiting**: Prevents overwhelming the target servers
+- **Shared WAF Protection**: WAF detection in any subsite triggers cooldown for all
+- **Independent Failure Isolation**: Failure in one subsite doesn't affect others
+
+**Section sources**
+- [zxgk/cli.py:286-352](file://zxgk/cli.py#L286-L352)
+- [zxgk/async_runner.py:1-395](file://zxgk/async_runner.py#L1-L395)
+- [zxgk/async_primitives.py:18-177](file://zxgk/async_primitives.py#L18-L177)
 
 ### Configuration File Format
 The configuration system has been enhanced with improved validation and environment variable expansion:
@@ -343,6 +411,7 @@ The new modular CLI introduces comprehensive input validation and sanitization:
 - Mode-specific validation ensures mutually exclusive options
 - Batch ID parsing enforces {YYYYMMDD}-{subsite} format for backfill mode
 - Subsite validation restricts to predefined values
+- Async mode validation requires Python 3.11+ and --batch option
 - File path validation prevents directory traversal attacks
 
 **Input Sanitization**
@@ -357,7 +426,7 @@ The new modular CLI introduces comprehensive input validation and sanitization:
 - Detailed logging for debugging and troubleshooting
 
 **Section sources**
-- [zxgk/cli.py:294-321](file://zxgk/cli.py#L294-L321)
+- [zxgk/cli.py:294-397](file://zxgk/cli.py#L294-L397)
 - [zxgk/config.py:73-88](file://zxgk/config.py#L73-L88)
 
 ### Error Handling and Recovery Strategies
@@ -387,6 +456,12 @@ The modular CLI provides robust error handling with multiple recovery strategies
 - Transaction-safe file operations
 - Atomic write operations for data integrity
 
+**Async Execution Recovery**
+- **New** - Thread-safe coordination across parallel subsites
+- **New** - Individual subsite failure isolation
+- **New** - Shared rate limiting and WAF protection
+- **New** - Automatic cleanup of failed threads
+
 **Diagnostics and Monitoring**
 - Comprehensive health check systems
 - Real-time status monitoring
@@ -397,6 +472,7 @@ The modular CLI provides robust error handling with multiple recovery strategies
 - [zxgk/cli.py:159-163](file://zxgk/cli.py#L159-L163)
 - [zxgk/runner.py:116-136](file://zxgk/runner.py#L116-L136)
 - [zxgk/backfill.py:132-137](file://zxgk/backfill.py#L132-L137)
+- [zxgk/async_runner.py:105-171](file://zxgk/async_runner.py#L105-L171)
 
 ### Practical Usage Patterns
 
@@ -444,6 +520,24 @@ python3 zxgk_query.py --batch config/companies.txt --subsite zhixing --mode text
 **Advanced Batch Configuration**
 ```bash
 python3 zxgk_query.py --batch companies.yaml --mode screenshot --max-per-session 15 --output-dir results/
+```
+
+#### Async Parallel Execution
+**New** - Concurrent execution across all three subsites:
+
+**Async Batch Processing (Three Subsites in Parallel)**
+```bash
+python3 zxgk_query.py --async --batch config/companies.txt --mode text-only
+```
+
+**Async Full Pipeline**
+```bash
+python3 zxgk_query.py --async --batch config/companies.txt --mode full --feishu
+```
+
+**Async with Custom Settings**
+```bash
+python3 zxgk_query.py --async --batch companies.yaml --mode screenshot --max-per-session 20 --output-dir results/
 ```
 
 #### Backfill Operations
@@ -508,9 +602,10 @@ The smoke_test.sh script validates system readiness:
 - Monitor exit codes for automated decision-making
 - Clean proxy environment variables before browser launch
 - Implement proper logging and monitoring for production use
+- **Use --async mode for production deployments** to maximize throughput across all subsites
 
 **Section sources**
-- [cron_daily_query.sh:1-246](file://cron_daily_query.sh#L1-L246)
+- [cron_daily_query.sh:1-294](file://cron_daily_query.sh#L1-L294)
 - [README.md:87-96](file://README.md#L87-L96)
 
 ## Dependency Analysis
@@ -521,6 +616,7 @@ graph LR
 Entry["zxgk_query.py"] --> CLI["zxgk/cli.py"]
 CLI --> Config["zxgk/config.py"]
 CLI --> Runner["zxgk/runner.py"]
+CLI --> AsyncRunner["zxgk/async_runner.py"]
 CLI --> Backfill["zxgk/backfill.py"]
 CLI --> Browser["zxgk/browser.py"]
 CLI --> Captcha["zxgk/captcha.py"]
@@ -528,7 +624,12 @@ CLI --> Query["zxgk/query.py"]
 CLI --> Screenshot["zxgk/screenshot.py"]
 CLI --> Exceptions["zxgk/exceptions.py"]
 CLI --> Writers["writers/feishu.py"]
-Config --> YAML["pyyaml"]
+CLI --> AsyncPrimitives["zxgk/async_primitives.py"]
+AsyncRunner --> AsyncPrimitives
+AsyncRunner --> Browser
+AsyncRunner --> Captcha
+AsyncRunner --> Query
+AsyncRunner --> Screenshot
 Runner --> Browser
 Runner --> Captcha
 Runner --> Query
@@ -572,6 +673,12 @@ The modular architecture provides several performance optimization opportunities
 - Load balancing across multiple subsites
 - Distributed processing capabilities
 
+**Async Performance Benefits**
+- **New** - Three subsites execute simultaneously instead of sequentially
+- **New** - Shared rate limiting prevents server overload
+- **New** - Coordinated WAF protection reduces false positives
+- **New** - Independent failure isolation improves reliability
+
 ## Troubleshooting Guide
 Comprehensive troubleshooting for the new modular CLI architecture:
 
@@ -607,6 +714,12 @@ Comprehensive troubleshooting for the new modular CLI architecture:
 - Validate table IDs and field mappings
 - Monitor API rate limits and quotas
 
+**Async Execution Issues**
+- **New** - Verify Python 3.11+ installation for --async mode
+- **New** - Check ThreadPoolExecutor resource limits
+- **New** - Monitor thread safety and rate limiting coordination
+- **New** - Validate shared resource access across threads
+
 **Performance Issues**
 - Optimize WAF parameters for target environment
 - Adjust concurrency limits and session management
@@ -619,7 +732,7 @@ Comprehensive troubleshooting for the new modular CLI architecture:
 - [README.md:87-96](file://README.md#L87-L96)
 
 ## Conclusion
-The new modular CLI architecture provides a robust, configurable, and resilient interface for querying China Execution Information Public Network across multiple subsites. The 320 lines of new code in zxgk/cli.py introduce structured command-line interaction with comprehensive validation, error handling, and output formatting capabilities. The system supports single and batch modes, diagnostics, and optional cloud storage integration while maintaining backward compatibility and enhancing operational reliability.
+The new modular CLI architecture provides a robust, configurable, and resilient interface for querying China Execution Information Public Network across multiple subsites. The 397 lines of new code in zxgk/cli.py introduce enhanced async capabilities, structured command-line interaction with comprehensive validation, error handling, and output formatting capabilities. The system supports single and batch modes, **new async parallel execution**, diagnostics, and optional cloud storage integration while maintaining backward compatibility and enhancing operational reliability.
 
 Key improvements include:
 - **Modular Design**: Clear separation of concerns with specialized runners
@@ -627,6 +740,8 @@ Key improvements include:
 - **Improved Usability**: Better argument parsing and user feedback
 - **Production Ready**: Robust error recovery and monitoring capabilities
 - **Extensible Architecture**: Easy addition of new operational modes and features
+- **New Async Support**: Three subsites execute simultaneously for improved throughput
+- **Coordinated Concurrency**: ThreadRateGate and ThreadWafCircuitBreaker for safe parallel execution
 
 ## Appendices
 
@@ -658,8 +773,13 @@ Key improvements include:
 python3 zxgk_query.py --batch companies.yaml \
   --mode full \
   --max-per-session 25 \
-  --output-dir results/20260510 \
+  --output-dir results/ \
   --resume
+
+# Async execution across all subsites
+python3 zxgk_query.py --async --batch companies.yaml \
+  --mode text-only \
+  --output-dir results/
 
 # Diagnostic with verbose logging
 python3 zxgk_query.py --diagnose --subsite shixin --verbose
@@ -671,6 +791,16 @@ python3 zxgk_query.py --diagnose --subsite shixin --verbose
 python3 zxgk_query.py --company "$COMPANY" --mode text-only
 EXIT_CODE=$?
 echo "Query for $COMPANY completed with exit code $EXIT_CODE"
+```
+
+**Async Execution Best Practices**
+```bash
+# Production deployment with async mode
+python3 zxgk_query.py --async --batch "$COMPANY_LIST" \
+  --mode full \
+  --feishu \
+  --max-per-session 15 \
+  --output-dir "$OUTPUT_DIR"
 ```
 
 **Section sources**
